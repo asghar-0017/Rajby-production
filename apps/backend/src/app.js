@@ -77,6 +77,7 @@ app.use(
       "http://157.245.150.54:5174",
       "http://157.245.150.54:5155",
       "http://157.245.150.54:5155",
+      "http://localhost:5174",
       "https://fbrtestcase.inplsoftwares.online",
       "http://103.104.84.43:5000",
       "https://103.104.84.43:5000",

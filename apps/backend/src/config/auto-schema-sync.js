@@ -326,6 +326,8 @@ class AutoSchemaSync {
       { table: 'invoice_items', column: 'quantity', type: 'DECIMAL(10,2)', allowNull: true },
       { table: 'invoice_items', column: 'unitPrice', type: 'DECIMAL(10,2)', allowNull: true },
       { table: 'invoice_items', column: 'totalValues', type: 'DECIMAL(10,2)', allowNull: true },
+      { table: 'invoice_items', column: 'InvoiceItemId', type: 'VARCHAR(150)', allowNull: true },
+      { table: 'invoice_items', column: 'InvoiceDetId', type: 'VARCHAR(150)', allowNull: true },
       { table: 'invoice_items', column: 'valueSalesExcludingST', type: 'DECIMAL(10,2)', allowNull: true },
       { table: 'invoice_items', column: 'fixedNotifiedValueOrRetailPrice', type: 'DECIMAL(10,2)', allowNull: true },
       { table: 'invoice_items', column: 'salesTaxApplicable', type: 'DECIMAL(10,2)', allowNull: true },

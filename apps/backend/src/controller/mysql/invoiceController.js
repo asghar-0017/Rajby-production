@@ -464,8 +464,25 @@ export const createInvoice = async (req, res) => {
             return hsCode.substring(0, 50);
           };
 
+          // Normalize InvoiceDetId coming from various client keys (legacy or with typos)
+          const resolveInvoiceDetId = (item) =>
+            cleanValue(
+              item?.InvoiceDetId ??
+                item?.lineItemInvoiceNumber ??
+                item?.["InvoiceDetId "] ?? // common payload typo with trailing space
+                item?.invoiceDetId ??
+                item?.invoice_det_id
+            );
+
           const mappedItem = {
             invoice_id: invoice.id,
+
+            InvoiceItemId:
+              item.InvoiceItemId === undefined
+                ? null
+                : cleanValue(item.InvoiceItemId),
+
+            InvoiceDetId: resolveInvoiceDetId(item),
 
             hsCode: cleanHsCode(item.hsCode),
 
@@ -714,6 +731,8 @@ export const createInvoice = async (req, res) => {
       items: createdInvoiceItems.map((item) => ({
         id: item.id,
         invoice_id: item.invoice_id,
+        InvoiceItemId: item.InvoiceItemId,
+        InvoiceDetId: item.InvoiceDetId,
         hsCode: item.hsCode,
         name: item.name,
         productName: item.name, // For backward compatibility
@@ -1020,8 +1039,25 @@ export const saveInvoice = async (req, res) => {
             return hsCode.substring(0, 50);
           };
 
+          // Normalize InvoiceDetId coming from various client keys (legacy or with typos)
+          const resolveInvoiceDetId = (item) =>
+            cleanValue(
+              item?.InvoiceDetId ??
+                item?.lineItemInvoiceNumber ??
+                item?.["InvoiceDetId "] ?? // common payload typo with trailing space
+                item?.invoiceDetId ??
+                item?.invoice_det_id
+            );
+
           const mappedItem = {
             invoice_id: invoice.id,
+
+            InvoiceItemId:
+              item.InvoiceItemId === undefined
+                ? null
+                : cleanValue(item.InvoiceItemId),
+
+            InvoiceDetId: resolveInvoiceDetId(item),
 
             hsCode: cleanHsCode(item.hsCode),
 
@@ -1228,6 +1264,8 @@ export const saveInvoice = async (req, res) => {
       items: createdInvoiceItems.map((item) => ({
         id: item.id,
         invoice_id: item.invoice_id,
+        InvoiceItemId: item.InvoiceItemId,
+        InvoiceDetId: item.InvoiceDetId,
         hsCode: item.hsCode,
         name: item.name,
         productName: item.name, // For backward compatibility
@@ -3933,6 +3971,8 @@ export const updateInvoice = async (req, res) => {
         id: item.id,
         product_name: item.name,
         hsCode: item.hsCode,
+        InvoiceItemId: item.InvoiceItemId,
+        InvoiceDetId: item.InvoiceDetId,
         productDescription: item.productDescription,
         quantity: item.quantity,
         rate: item.rate,
@@ -4004,6 +4044,8 @@ export const updateInvoice = async (req, res) => {
         id: item.id,
         product_name: item.name,
         hsCode: item.hsCode,
+        InvoiceItemId: item.InvoiceItemId,
+        InvoiceDetId: item.InvoiceDetId,
         productDescription: item.productDescription,
         quantity: item.quantity,
         rate: item.rate,
@@ -4790,6 +4832,41 @@ export const submitSavedInvoice = async (req, res) => {
       });
     }
 
+    // Persist line-item level invoice numbers returned by FBR (e.g. "0711...-1")
+    try {
+      const lineItemStatuses =
+        postRes.data?.validationResponse?.invoiceStatuses ||
+        postRes.data?.invoiceStatuses ||
+        [];
+
+      if (Array.isArray(lineItemStatuses) && lineItemStatuses.length > 0) {
+        const sortedItems = [...(invoice.InvoiceItems || [])].sort(
+          (a, b) => a.id - b.id
+        );
+
+        await Promise.all(
+          lineItemStatuses.map((status) => {
+            const idx = parseInt(status?.itemSNo, 10);
+            if (!Number.isInteger(idx) || idx < 1) return null;
+
+            const targetItem = sortedItems[idx - 1];
+            if (!targetItem || !status?.invoiceNo) return null;
+
+            // Keep in-memory copy in sync for downstream logging/response
+            targetItem.InvoiceDetId = status.invoiceNo;
+            return targetItem.update({
+              InvoiceDetId: status.invoiceNo,
+            });
+          })
+        );
+      }
+    } catch (lineItemUpdateError) {
+      console.error(
+        "❌ Error updating line item invoice numbers from FBR response:",
+        lineItemUpdateError
+      );
+    }
+
     // Ensure we have a valid FBR invoice number before updating
 
     if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "") {
@@ -4922,6 +4999,8 @@ export const submitSavedInvoice = async (req, res) => {
               id: item.id,
               product_name: item.name,
               hsCode: item.hsCode,
+              InvoiceItemId: item.InvoiceItemId,
+              InvoiceDetId: item.InvoiceDetId,
               productDescription: item.productDescription,
               quantity: item.quantity,
               rate: item.rate,
@@ -4983,6 +5062,8 @@ export const submitSavedInvoice = async (req, res) => {
               id: item.id,
               product_name: item.name,
               hsCode: item.hsCode,
+              InvoiceItemId: item.InvoiceItemId,
+              InvoiceDetId: item.InvoiceDetId,
               productDescription: item.productDescription,
               quantity: item.quantity,
               rate: item.rate,

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
-import { Op } from "sequelize";
+import { Op, QueryTypes } from "sequelize";
 import AuditLog from "../model/mysql/AuditLog.js";
 import AuditSummary from "../model/mysql/AuditSummary.js";
 import { masterSequelize } from "../config/mysql.js";
@@ -32,6 +32,10 @@ class AuditService {
         additionalInfo = null,
       } = auditData;
 
+      // Validate user against master DB to avoid FK failures
+      const validUserId = await this.getValidUserId(user);
+      const userWithValidId = { ...user, id: validUserId, userId: validUserId };
+
       // Use provided changedFields or calculate if not provided
       let changedFields = auditData.changedFields;
       if (!changedFields && operation === "UPDATE" && oldValues && newValues) {
@@ -48,9 +52,9 @@ class AuditService {
         entityType,
         entityId,
         operation,
-        userId: user.id || user.userId || null,
+        userId: validUserId,
         userEmail: user.email || null,
-        userName: this.getUserDisplayName(user),
+        userName: this.getUserDisplayName(userWithValidId),
         userRole: user.role || null,
         tenantId: tenant.id || tenant.tenantId || null,
         tenantName: tenant.name || tenant.sellerBusinessName || null,
@@ -72,7 +76,7 @@ class AuditService {
         entityType,
         entityId,
         operation,
-        user,
+        user: userWithValidId,
         tenant,
         newValues,
         additionalInfo,
@@ -137,14 +141,15 @@ class AuditService {
       const transaction = await masterSequelize.transaction();
 
       try {
+        const validUserId = await this.getValidUserId(user);
+        const userDisplayName = this.getUserDisplayName({ ...user, id: validUserId, userId: validUserId });
+        const now = new Date();
+
         // Find existing summary or create new one
         let summary = await AuditSummary.findOne({
           where: { entityType, entityId },
           transaction,
         });
-
-        const userDisplayName = this.getUserDisplayName(user);
-        const now = new Date();
 
         if (!summary) {
           // Create new summary
@@ -154,18 +159,18 @@ class AuditService {
               entityId,
               entityName: this.getEntityName(entityType, newValues, additionalInfo),
               totalOperations: 1,
-              createdByUserId: user.id || user.userId || null,
+              createdByUserId: validUserId,
               createdByEmail: user.email || null,
               createdByName: userDisplayName,
               createdAt: now,
-              lastModifiedByUserId: user.id || user.userId || null,
+              lastModifiedByUserId: validUserId,
               lastModifiedByEmail: user.email || null,
               lastModifiedByName: userDisplayName,
               lastModifiedAt: now,
               tenantId: tenant.id || tenant.tenantId || null,
               tenantName: tenant.name || tenant.sellerBusinessName || null,
               isDeleted: operation === "DELETE",
-              deletedByUserId: operation === "DELETE" ? (user.id || user.userId || null) : null,
+              deletedByUserId: operation === "DELETE" ? validUserId : null,
               deletedByEmail: operation === "DELETE" ? (user.email || null) : null,
               deletedByName: operation === "DELETE" ? userDisplayName : null,
               deletedAt: operation === "DELETE" ? now : null,
@@ -176,7 +181,7 @@ class AuditService {
           // Update existing summary
           const updateData = {
             totalOperations: summary.totalOperations + 1,
-            lastModifiedByUserId: user.id || user.userId || null,
+            lastModifiedByUserId: validUserId,
             lastModifiedByEmail: user.email || null,
             lastModifiedByName: userDisplayName,
             lastModifiedAt: now,
@@ -190,7 +195,7 @@ class AuditService {
           // Handle deletion
           if (operation === "DELETE") {
             updateData.isDeleted = true;
-            updateData.deletedByUserId = user.id || user.userId || null;
+            updateData.deletedByUserId = validUserId;
             updateData.deletedByEmail = user.email || null;
             updateData.deletedByName = userDisplayName;
             updateData.deletedAt = now;
@@ -503,6 +508,29 @@ class AuditService {
     } catch (error) {
       console.error("Error fetching audit statistics:", error);
       throw error;
+    }
+  }
+
+  /**
+   * Resolve a valid master user id; returns null if not found to prevent FK errors.
+   */
+  async getValidUserId(user) {
+    try {
+      const candidateId = user?.id || user?.userId || null;
+      if (!candidateId) return null;
+
+      const [row] = await masterSequelize.query(
+        "SELECT id FROM users WHERE id = ? LIMIT 1",
+        {
+          replacements: [candidateId],
+          type: QueryTypes.SELECT,
+        }
+      );
+
+      return row?.id || null;
+    } catch (error) {
+      console.error("Error validating audit user ID:", error);
+      return null;
     }
   }
 }
