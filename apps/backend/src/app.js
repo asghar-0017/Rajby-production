@@ -88,7 +88,7 @@ app.use(
     credentials: true,
     maxAge: 86400, // 24 hours
   })
-);
+)
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(
