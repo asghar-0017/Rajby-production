@@ -31,7 +31,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import PermissionGate from "./PermissionGate";
 
-import { api, API_CONFIG } from "../API/Api";
+import { api, API_CONFIG, deleteRajbyInvoice } from "../API/Api";
 import { postData } from "../API/GetApi";
 import { checkRegistrationStatusWithDate } from "../API/FBRService";
 import SearchIcon from "@mui/icons-material/Search";
@@ -730,37 +730,87 @@ export default function BasicTable() {
           return;
         }
 
-        // Show loading while deleting (including Rajby API call)
-        Swal.fire({
-          title: "Deleting Invoice...",
-          text: invoice.companyInvoiceRefNo
-            ? "Deleting invoice from Rajby API first, then local database. Please wait..."
-            : "Deleting invoice from local database. Please wait...",
-          allowOutsideClick: false,
-          didOpen: () => {
-            Swal.showLoading();
-          },
-        });
+        const companyInvoiceRefNo = invoice.companyInvoiceRefNo?.trim();
+        let rajbyDeleteResult = null;
 
+        // Delete from Rajby API first (directly from frontend, like buyers/products sync)
+        if (companyInvoiceRefNo && companyInvoiceRefNo.length > 0) {
+          // Show loading while deleting from Rajby API
+          Swal.fire({
+            title: "Deleting Invoice...",
+            text: "Deleting invoice from Rajby API first, then local database. Please wait...",
+            allowOutsideClick: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
+          });
+
+          try {
+            // Check if Rajby token exists
+            const rajbyToken = localStorage.getItem("Rajbytoken");
+            if (!rajbyToken) {
+              throw new Error("Rajby token not available. Please login again.");
+            }
+
+            // Delete from Rajby API directly (same approach as buyers/products sync)
+            const rajbyResponse = await deleteRajbyInvoice(companyInvoiceRefNo);
+            rajbyDeleteResult = rajbyResponse.data;
+
+            console.log("Rajby API delete success:", rajbyDeleteResult);
+
+            // Verify Rajby API returned success
+            if (!rajbyDeleteResult || rajbyDeleteResult.success !== true) {
+              const errorMsg = rajbyDeleteResult?.message || "Rajby API deletion failed";
+              throw new Error(errorMsg);
+            }
+          } catch (rajbyError) {
+            console.error("Rajby API delete error:", rajbyError);
+            const errorMessage = rajbyError.response?.data?.message || 
+                                rajbyError.message || 
+                                "Failed to delete invoice from Rajby API";
+            
+            Swal.fire({
+              icon: "error",
+              title: "Rajby API Delete Failed",
+              text: errorMessage,
+              confirmButtonColor: "#d33",
+            });
+            return; // Don't proceed with local deletion if Rajby API fails
+          }
+        } else {
+          // No companyInvoiceRefNo, just delete from local database
+          Swal.fire({
+            title: "Deleting Invoice...",
+            text: "Deleting invoice from local database. Please wait...",
+            allowOutsideClick: false,
+            didOpen: () => {
+              Swal.showLoading();
+            },
+          });
+        }
+
+        // Delete from local database
         const response = await api.delete(
-          `/tenant/${selectedTenant.tenant_id}/invoices/${invoice.id}`
+          `/tenant/${selectedTenant.tenant_id}/invoices/${invoice.id}`,
+          {
+            data: {
+              skipRajbyDelete: true, // Tell backend to skip Rajby deletion since we already did it
+              rajbyDeleteResult: rajbyDeleteResult, // Pass the result for logging
+            },
+          }
         );
 
         if (response.data.success) {
-          // Rajby API succeeded first, then local deletion succeeded
-          const rajbyResult = response.data.rajbyApiResult;
-          let message = "Invoice deleted successfully from Rajby API and local database.";
-          let icon = "success";
-
-          if (rajbyResult) {
-            message = `Invoice deleted successfully.\n\nRajby API: ${rajbyResult.message || "Success"}`;
-            if (rajbyResult.InvoiceRefereceNo) {
-              message += `\nReference: ${rajbyResult.InvoiceRefereceNo}`;
+          let message = "Invoice deleted successfully.";
+          if (rajbyDeleteResult) {
+            message += `\n\nRajby API: ${rajbyDeleteResult.message || "Success"}`;
+            if (rajbyDeleteResult.invoiceRefereceNo) {
+              message += `\nReference: ${rajbyDeleteResult.invoiceRefereceNo}`;
             }
           }
 
           Swal.fire({
-            icon: icon,
+            icon: "success",
             title: "Deleted!",
             text: message,
             confirmButtonColor: "#28a745",
@@ -769,19 +819,10 @@ export default function BasicTable() {
           // Refresh the invoice list
           getMyInvoices();
         } else {
-          // Rajby API failed, local deletion was not performed
-          const rajbyResult = response.data.rajbyApiResult;
-          const errorMessage = response.data.message || "Failed to delete invoice";
-          
-          let message = errorMessage;
-          if (rajbyResult && rajbyResult.error) {
-            message += `\n\nRajby API Error: ${rajbyResult.error}`;
-          }
-
           Swal.fire({
             icon: "error",
             title: "Delete Failed",
-            text: message,
+            text: response.data.message || "Failed to delete invoice from local database.",
             confirmButtonColor: "#d33",
           });
         }
@@ -796,7 +837,7 @@ export default function BasicTable() {
         } else {
           Swal.fire(
             "Error",
-            error.response?.data?.message || "Error deleting invoice. Please try again.",
+            error.response?.data?.message || error.message || "Error deleting invoice. Please try again.",
             "error"
           );
         }
@@ -1525,30 +1566,63 @@ export default function BasicTable() {
         },
       });
 
+      // Check if Rajby token exists
+      const rajbyToken = localStorage.getItem("Rajbytoken");
+      if (!rajbyToken) {
+        Swal.fire({
+          icon: "error",
+          title: "Token Not Found",
+          text: "Rajby token not found. Please login again.",
+        });
+        setBulkDeleteLoading(false);
+        return;
+      }
+
       const results = [];
       let rajbySuccessCount = 0;
       let rajbyFailedCount = 0;
 
       for (const inv of selectedInvoiceDetails) {
         try {
-          const response = await api.delete(
-            `/tenant/${selectedTenant.tenant_id}/invoices/${inv.id}`
-          );
-          if (response.data.success) {
-            // Check Rajby API result
-            const rajbyResult = response.data.rajbyApiResult;
-            if (rajbyResult) {
-              if (rajbyResult.success) {
+          const companyInvoiceRefNo = inv.companyInvoiceRefNo?.trim();
+          let rajbyDeleteResult = null;
+
+          // Delete from Rajby API first (directly from frontend, like buyers/products sync)
+          if (companyInvoiceRefNo && companyInvoiceRefNo.length > 0) {
+            try {
+              const rajbyResponse = await deleteRajbyInvoice(companyInvoiceRefNo);
+              rajbyDeleteResult = rajbyResponse.data;
+
+              if (rajbyDeleteResult && rajbyDeleteResult.success === true) {
                 rajbySuccessCount++;
               } else {
                 rajbyFailedCount++;
+                // Still proceed with local deletion even if Rajby fails
+                console.warn(`Rajby API delete failed for ${inv.invoiceNumber}:`, rajbyDeleteResult);
               }
+            } catch (rajbyError) {
+              rajbyFailedCount++;
+              console.error(`Rajby API delete error for ${inv.invoiceNumber}:`, rajbyError);
+              // Still proceed with local deletion even if Rajby fails
             }
+          }
 
+          // Delete from local database
+          const response = await api.delete(
+            `/tenant/${selectedTenant.tenant_id}/invoices/${inv.id}`,
+            {
+              data: {
+                skipRajbyDelete: true, // Tell backend to skip Rajby deletion since we already did it
+                rajbyDeleteResult: rajbyDeleteResult, // Pass the result for logging
+              },
+            }
+          );
+
+          if (response.data.success) {
             results.push({
               invoiceNumber: inv.invoiceNumber,
               status: "success",
-              rajbyResult: rajbyResult,
+              rajbyResult: rajbyDeleteResult,
             });
           } else {
             results.push({

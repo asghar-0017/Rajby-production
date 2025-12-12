@@ -274,4 +274,26 @@ export const fetchRajbyProducts = async () => {
   return response;
 };
 
+// Direct Rajby API call for deleting invoice
+export const deleteRajbyInvoice = async (companyInvoiceRefNo) => {
+  const token = localStorage.getItem("Rajbytoken");
+  if (!token) {
+    throw new Error("Rajby token not available. Please login first.");
+  }
+  if (!companyInvoiceRefNo) {
+    throw new Error("Company Invoice Reference Number is required");
+  }
+  const response = await axios.delete(
+    `${RAJBY_API_BASE_URL}/api/InvoicingApi/delete/${encodeURIComponent(companyInvoiceRefNo)}`,
+    {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      timeout: 60000, // 60 seconds timeout
+    }
+  );
+  return response;
+};
+
 export { API_CONFIG, api };
