@@ -23,6 +23,7 @@ import Tenant from "../../model/mysql/Tenant.js";
 import hsCodeCacheService from "../../service/HSCodeCacheService.js";
 import { logAuditEvent } from "../../middleWare/auditMiddleware.js";
 import InvoiceBackupService from "../../service/InvoiceBackupService.js";
+import { deleteRajbyInvoice } from "../../service/RajbyService.js";
 
 const { toWords } = numberToWords;
 
@@ -4152,6 +4153,30 @@ export const deleteInvoice = async (req, res) => {
     const invoiceItems = await req.tenantModels.InvoiceItem.findAll({
       where: { invoice_id: invoice.id },
     });
+
+    // Delete from Rajby API if companyInvoiceRefNo exists
+    if (invoice.companyInvoiceRefNo) {
+      try {
+        console.log(
+          `Deleting invoice from Rajby API: ${invoice.companyInvoiceRefNo}`
+        );
+        const rajbyResponse = await deleteRajbyInvoice(
+          invoice.companyInvoiceRefNo
+        );
+        console.log(
+          `Rajby API delete response:`,
+          JSON.stringify(rajbyResponse)
+        );
+      } catch (rajbyError) {
+        // Log error but don't fail the entire deletion
+        // This allows local deletion even if Rajby API is unavailable
+        console.error(
+          `Failed to delete invoice from Rajby API (${invoice.companyInvoiceRefNo}):`,
+          rajbyError.message
+        );
+        // Continue with local deletion
+      }
+    }
 
     // Store old values for audit before soft deletion
     const oldValues = {
