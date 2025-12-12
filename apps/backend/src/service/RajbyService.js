@@ -33,7 +33,7 @@ export async function getRajbyToken() {
         "Content-Type": "application/json",
         Accept: "text/plain",
       },
-      timeout: 10000,
+      timeout: 30000, // Increased timeout to 30 seconds
     }
   );
 

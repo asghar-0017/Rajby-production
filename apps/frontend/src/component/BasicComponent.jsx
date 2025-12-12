@@ -730,16 +730,47 @@ export default function BasicTable() {
           return;
         }
 
+        // Show loading while deleting (including Rajby API call)
+        Swal.fire({
+          title: "Deleting Invoice...",
+          text: invoice.companyInvoiceRefNo
+            ? "Deleting invoice from local database and Rajby API. Please wait..."
+            : "Deleting invoice from local database. Please wait...",
+          allowOutsideClick: false,
+          didOpen: () => {
+            Swal.showLoading();
+          },
+        });
+
         const response = await api.delete(
           `/tenant/${selectedTenant.tenant_id}/invoices/${invoice.id}`
         );
 
         if (response.data.success) {
-          Swal.fire(
-            "Deleted!",
-            "Invoice has been deleted successfully.",
-            "success"
-          );
+          // Check Rajby API result
+          const rajbyResult = response.data.rajbyApiResult;
+          let message = "Invoice has been deleted successfully.";
+          let icon = "success";
+
+          if (rajbyResult) {
+            if (rajbyResult.success) {
+              message = `Invoice deleted successfully from local database and Rajby API.\n\nRajby API: ${rajbyResult.message || "Success"}`;
+              if (rajbyResult.InvoiceRefereceNo) {
+                message += `\nReference: ${rajbyResult.InvoiceRefereceNo}`;
+              }
+            } else {
+              message = `Invoice deleted from local database, but Rajby API deletion failed.\n\nError: ${rajbyResult.error || "Unknown error"}`;
+              icon = "warning";
+            }
+          }
+
+          Swal.fire({
+            icon: icon,
+            title: "Deleted!",
+            text: message,
+            confirmButtonColor: icon === "success" ? "#28a745" : "#ff9800",
+          });
+
           // Refresh the invoice list
           getMyInvoices();
         } else {
@@ -757,7 +788,7 @@ export default function BasicTable() {
         } else {
           Swal.fire(
             "Error",
-            "Error deleting invoice. Please try again.",
+            error.response?.data?.message || "Error deleting invoice. Please try again.",
             "error"
           );
         }
@@ -1476,16 +1507,40 @@ export default function BasicTable() {
 
       setBulkDeleteLoading(true);
 
+      // Show loading while deleting (including Rajby API calls)
+      Swal.fire({
+        title: "Deleting Invoices...",
+        text: `Deleting ${selectedInvoiceDetails.length} invoice(s) from local database and Rajby API. Please wait...`,
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        },
+      });
+
       const results = [];
+      let rajbySuccessCount = 0;
+      let rajbyFailedCount = 0;
+
       for (const inv of selectedInvoiceDetails) {
         try {
           const response = await api.delete(
             `/tenant/${selectedTenant.tenant_id}/invoices/${inv.id}`
           );
           if (response.data.success) {
+            // Check Rajby API result
+            const rajbyResult = response.data.rajbyApiResult;
+            if (rajbyResult) {
+              if (rajbyResult.success) {
+                rajbySuccessCount++;
+              } else {
+                rajbyFailedCount++;
+              }
+            }
+
             results.push({
               invoiceNumber: inv.invoiceNumber,
               status: "success",
+              rajbyResult: rajbyResult,
             });
           } else {
             results.push({
@@ -1506,12 +1561,18 @@ export default function BasicTable() {
       const success = results.filter((r) => r.status === "success").length;
       const failed = results.filter((r) => r.status === "error");
 
+      // Build message with Rajby API results
+      let message = `${success} invoice(s) deleted successfully from local database.`;
+      if (rajbySuccessCount > 0 || rajbyFailedCount > 0) {
+        message += `\n\nRajby API: ${rajbySuccessCount} succeeded, ${rajbyFailedCount} failed.`;
+      }
+
       if (failed.length === 0) {
         Swal.fire({
-          icon: "success",
-          title: "Deleted",
-          text: `${success} invoice(s) deleted successfully.`,
-          confirmButtonColor: "#28a745",
+          icon: rajbyFailedCount > 0 ? "warning" : "success",
+          title: rajbyFailedCount > 0 ? "Deleted (with warnings)" : "Deleted",
+          text: message,
+          confirmButtonColor: rajbyFailedCount > 0 ? "#ff9800" : "#28a745",
         });
       } else if (success === 0) {
         Swal.fire({
@@ -1526,7 +1587,9 @@ export default function BasicTable() {
         Swal.fire({
           icon: "warning",
           title: "Partial Delete",
-          text: `${success} invoice(s) deleted. ${failed.length} failed.`,
+          text: `${message}\n\n${failed.length} invoice(s) failed to delete:\n${failed
+            .map((f) => `${f.invoiceNumber}: ${f.message}`)
+            .join("\n")}`,
           confirmButtonColor: "#ff9800",
         });
       }
