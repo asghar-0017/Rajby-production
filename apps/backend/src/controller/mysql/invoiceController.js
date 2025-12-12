@@ -4182,10 +4182,22 @@ export const deleteInvoice = async (req, res) => {
     
     // companyInvoiceRefNo exists, proceed with Rajby API deletion
     try {
+      // Extract Rajby token from request headers (X-Rajby-Token header from frontend localStorage)
+      const rajbyToken = req.headers['x-rajby-token'] || req.headers['X-Rajby-Token'];
+      
       console.log(
         `[Invoice Delete] Attempting to delete from Rajby API first. Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo}`
       );
-      rajbyApiResult = await deleteRajbyInvoice(companyInvoiceRefNo);
+      if (rajbyToken) {
+        console.log(
+          `[Invoice Delete] Using Rajby token from request header (localStorage)`
+        );
+      } else {
+        console.log(
+          `[Invoice Delete] No Rajby token in request header, will fetch from API`
+        );
+      }
+      rajbyApiResult = await deleteRajbyInvoice(companyInvoiceRefNo, 1, rajbyToken);
       console.log(
         `[Invoice Delete] Rajby API delete SUCCESS:`,
         JSON.stringify(rajbyApiResult, null, 2)

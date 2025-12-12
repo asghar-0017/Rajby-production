@@ -90,6 +90,17 @@ api.interceptors.request.use(
       }
     }
 
+    // For invoice delete requests, also include Rajby token in custom header
+    // This allows backend to use the token from localStorage instead of fetching it
+    const isInvoiceDeleteRequest = config.method === "delete" && config.url.includes("/invoices/");
+    if (isInvoiceDeleteRequest) {
+      const rajbyToken = localStorage.getItem("Rajbytoken");
+      if (rajbyToken) {
+        config.headers["X-Rajby-Token"] = rajbyToken;
+        console.log("Added Rajby token to delete invoice request header");
+      }
+    }
+
     // Skip tenant ID for authentication endpoints and Rajby endpoints
     const isAuthEndpoint =
       config.url.includes("/auth/") ||

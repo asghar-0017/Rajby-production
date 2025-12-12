@@ -6,10 +6,17 @@ let rajbyTokenCache = {
 
 /**
  * Get fresh Rajby API token
- * Returns cached token if still valid, otherwise fetches a new one
+ * Returns provided token if available, cached token if still valid, otherwise fetches a new one
+ * @param {string} providedToken - Optional token provided from request (e.g., from localStorage)
  * @returns {Promise<string>} The Rajby API token
  */
-export async function getRajbyToken() {
+export async function getRajbyToken(providedToken = null) {
+  // If a token is provided, use it directly
+  if (providedToken && typeof providedToken === "string" && providedToken.trim().length > 0) {
+    console.log("Using provided Rajby token from request");
+    return providedToken.trim();
+  }
+
   const axios = (await import("axios")).default;
 
   // Return cached token if still valid (with 5 min buffer)
@@ -18,6 +25,7 @@ export async function getRajbyToken() {
     rajbyTokenCache.expiresAt &&
     Date.now() < rajbyTokenCache.expiresAt - 300000
   ) {
+    console.log("Using cached Rajby token");
     return rajbyTokenCache.token;
   }
 
@@ -63,19 +71,20 @@ export async function getRajbyToken() {
  * Delete invoice from Rajby API
  * @param {string} companyInvoiceRefNo - The company invoice reference number
  * @param {number} retries - Number of retry attempts (default: 1)
+ * @param {string} providedToken - Optional Rajby token provided from request (e.g., from localStorage)
  * @returns {Promise<Object>} The response from Rajby API
  */
-export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1) {
+export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1, providedToken = null) {
   if (!companyInvoiceRefNo) {
     throw new Error("Company Invoice Reference Number is required");
   }
 
   const axios = (await import("axios")).default;
   
-  // Get token with retry logic
+  // Get token with retry logic - use provided token if available
   let token;
   try {
-    token = await getRajbyToken();
+    token = await getRajbyToken(providedToken);
   } catch (tokenError) {
     console.error(`[Rajby API] Failed to get token:`, tokenError.message);
     throw new Error(`Failed to get Rajby token: ${tokenError.message}`);
