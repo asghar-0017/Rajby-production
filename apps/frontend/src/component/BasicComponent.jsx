@@ -734,7 +734,7 @@ export default function BasicTable() {
         Swal.fire({
           title: "Deleting Invoice...",
           text: invoice.companyInvoiceRefNo
-            ? "Deleting invoice from local database and Rajby API. Please wait..."
+            ? "Deleting invoice from Rajby API first, then local database. Please wait..."
             : "Deleting invoice from local database. Please wait...",
           allowOutsideClick: false,
           didOpen: () => {
@@ -747,20 +747,15 @@ export default function BasicTable() {
         );
 
         if (response.data.success) {
-          // Check Rajby API result
+          // Rajby API succeeded first, then local deletion succeeded
           const rajbyResult = response.data.rajbyApiResult;
-          let message = "Invoice has been deleted successfully.";
+          let message = "Invoice deleted successfully from Rajby API and local database.";
           let icon = "success";
 
           if (rajbyResult) {
-            if (rajbyResult.success) {
-              message = `Invoice deleted successfully from local database and Rajby API.\n\nRajby API: ${rajbyResult.message || "Success"}`;
-              if (rajbyResult.InvoiceRefereceNo) {
-                message += `\nReference: ${rajbyResult.InvoiceRefereceNo}`;
-              }
-            } else {
-              message = `Invoice deleted from local database, but Rajby API deletion failed.\n\nError: ${rajbyResult.error || "Unknown error"}`;
-              icon = "warning";
+            message = `Invoice deleted successfully.\n\nRajby API: ${rajbyResult.message || "Success"}`;
+            if (rajbyResult.InvoiceRefereceNo) {
+              message += `\nReference: ${rajbyResult.InvoiceRefereceNo}`;
             }
           }
 
@@ -768,14 +763,27 @@ export default function BasicTable() {
             icon: icon,
             title: "Deleted!",
             text: message,
-            confirmButtonColor: icon === "success" ? "#28a745" : "#ff9800",
+            confirmButtonColor: "#28a745",
           });
 
           // Refresh the invoice list
           getMyInvoices();
         } else {
-          console.error("Failed to delete invoice:", response.data.message);
-          Swal.fire("Error", "Failed to delete invoice", "error");
+          // Rajby API failed, local deletion was not performed
+          const rajbyResult = response.data.rajbyApiResult;
+          const errorMessage = response.data.message || "Failed to delete invoice";
+          
+          let message = errorMessage;
+          if (rajbyResult && rajbyResult.error) {
+            message += `\n\nRajby API Error: ${rajbyResult.error}`;
+          }
+
+          Swal.fire({
+            icon: "error",
+            title: "Delete Failed",
+            text: message,
+            confirmButtonColor: "#d33",
+          });
         }
       } catch (error) {
         console.error("Error deleting invoice:", error);
