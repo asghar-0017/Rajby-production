@@ -4155,27 +4155,42 @@ export const deleteInvoice = async (req, res) => {
     });
 
     // Delete from Rajby API if companyInvoiceRefNo exists
+    let rajbyApiResult = null;
     if (invoice.companyInvoiceRefNo) {
       try {
         console.log(
-          `Deleting invoice from Rajby API: ${invoice.companyInvoiceRefNo}`
+          `[Invoice Delete] Attempting to delete from Rajby API. Invoice ID: ${invoice.id}, Company Invoice Ref No: ${invoice.companyInvoiceRefNo}`
         );
-        const rajbyResponse = await deleteRajbyInvoice(
+        rajbyApiResult = await deleteRajbyInvoice(
           invoice.companyInvoiceRefNo
         );
         console.log(
-          `Rajby API delete response:`,
-          JSON.stringify(rajbyResponse)
+          `[Invoice Delete] Rajby API delete SUCCESS:`,
+          JSON.stringify(rajbyApiResult, null, 2)
         );
       } catch (rajbyError) {
-        // Log error but don't fail the entire deletion
-        // This allows local deletion even if Rajby API is unavailable
+        // Log detailed error information
         console.error(
-          `Failed to delete invoice from Rajby API (${invoice.companyInvoiceRefNo}):`,
-          rajbyError.message
+          `[Invoice Delete] Failed to delete invoice from Rajby API`
         );
-        // Continue with local deletion
+        console.error(`[Invoice Delete] Invoice ID: ${invoice.id}`);
+        console.error(`[Invoice Delete] Company Invoice Ref No: ${invoice.companyInvoiceRefNo}`);
+        console.error(`[Invoice Delete] Error:`, rajbyError.message);
+        console.error(`[Invoice Delete] Full Error:`, rajbyError);
+        
+        // Store error info for response
+        rajbyApiResult = {
+          success: false,
+          error: rajbyError.message,
+        };
+        
+        // Continue with local deletion even if Rajby API fails
+        // This allows local deletion even if Rajby API is unavailable
       }
+    } else {
+      console.warn(
+        `[Invoice Delete] Skipping Rajby API delete - companyInvoiceRefNo is missing for invoice ID: ${invoice.id}`
+      );
     }
 
     // Store old values for audit before soft deletion
@@ -4258,8 +4273,8 @@ export const deleteInvoice = async (req, res) => {
 
     res.status(200).json({
       success: true,
-
       message: "Invoice deleted successfully",
+      rajbyApiResult: rajbyApiResult, // Include Rajby API response/error for debugging
     });
   } catch (error) {
     console.error("Error deleting invoice:", error);

@@ -72,17 +72,51 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo) {
   const axios = (await import("axios")).default;
   const token = await getRajbyToken();
 
-  const response = await axios.delete(
-    `http://103.104.84.43:5000/api/InvoicingApi/delete/${companyInvoiceRefNo}`,
-    {
+  const url = `http://103.104.84.43:5000/api/InvoicingApi/delete/${encodeURIComponent(companyInvoiceRefNo)}`;
+  
+  console.log(`[Rajby API] DELETE Request URL: ${url}`);
+  console.log(`[Rajby API] Using token: ${token ? token.substring(0, 20) + '...' : 'NO TOKEN'}`);
+
+  try {
+    const response = await axios.delete(url, {
       headers: {
         Accept: "application/json",
         Authorization: `Bearer ${token}`,
       },
-      timeout: 10000,
-    }
-  );
+      timeout: 30000, // Increased timeout to 30 seconds
+    });
 
-  return response.data;
+    console.log(`[Rajby API] DELETE Response Status: ${response.status}`);
+    console.log(`[Rajby API] DELETE Response Data:`, JSON.stringify(response.data, null, 2));
+
+    return response.data;
+  } catch (error) {
+    // Enhanced error logging
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      // that falls out of the range of 2xx
+      console.error(`[Rajby API] DELETE Error Response Status: ${error.response.status}`);
+      console.error(`[Rajby API] DELETE Error Response Data:`, JSON.stringify(error.response.data, null, 2));
+      console.error(`[Rajby API] DELETE Error Response Headers:`, JSON.stringify(error.response.headers, null, 2));
+      
+      const errorMessage = error.response.data?.message || error.message || 'Unknown error';
+      const errorDetails = {
+        status: error.response.status,
+        data: error.response.data,
+        message: errorMessage,
+      };
+      
+      throw new Error(`Rajby API DELETE failed: ${errorMessage} (Status: ${error.response.status})`);
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error(`[Rajby API] DELETE Error: No response received`);
+      console.error(`[Rajby API] DELETE Error Request:`, error.request);
+      throw new Error(`Rajby API DELETE failed: No response received from server`);
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      console.error(`[Rajby API] DELETE Error:`, error.message);
+      throw new Error(`Rajby API DELETE failed: ${error.message}`);
+    }
+  }
 }
 
