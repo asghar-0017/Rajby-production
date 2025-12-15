@@ -36,18 +36,15 @@ const UserLogin = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
 
-  // Function to call external API and store Rajbytoken
+  // Function to call Rajby login API (backend handles token management)
   const callExternalLoginAPI = async () => {
     try {
-      const data = await performRajbyLogin();
-
-      if (data?.token) {
-        localStorage.setItem("Rajbytoken", data.token);
-        console.log("External API login successful, token stored as Rajbytoken");
-      }
+      await performRajbyLogin();
+      // Backend handles token management - no need to store in frontend
+      console.log("Rajby login successful - backend handles token management");
     } catch (error) {
-      console.error("External API login error:", error);
-      // Don't throw error - allow login to proceed even if external API fails
+      console.error("Rajby login error:", error);
+      // Don't throw error - allow login to proceed even if Rajby API fails
     }
   };
 

@@ -746,13 +746,7 @@ export default function BasicTable() {
           });
 
           try {
-            // Check if Rajby token exists
-            const rajbyToken = localStorage.getItem("Rajbytoken");
-            if (!rajbyToken) {
-              throw new Error("Rajby token not available. Please login again.");
-            }
-
-            // Delete from Rajby API directly (same approach as buyers/products sync)
+            // Delete from Rajby API through backend - backend handles token management
             const rajbyResponse = await deleteRajbyInvoice(companyInvoiceRefNo);
             rajbyDeleteResult = rajbyResponse.data;
 
@@ -1566,18 +1560,7 @@ export default function BasicTable() {
         },
       });
 
-      // Check if Rajby token exists
-      const rajbyToken = localStorage.getItem("Rajbytoken");
-      if (!rajbyToken) {
-        Swal.fire({
-          icon: "error",
-          title: "Token Not Found",
-          text: "Rajby token not found. Please login again.",
-        });
-        setBulkDeleteLoading(false);
-        return;
-      }
-
+      // Backend handles token management - no token check needed
       const results = [];
       let rajbySuccessCount = 0;
       let rajbyFailedCount = 0;

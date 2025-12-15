@@ -372,17 +372,6 @@ const Products = () => {
 
   const handleSync = async () => {
     try {
-      const rajbyToken = localStorage.getItem("Rajbytoken");
-      
-      if (!rajbyToken) {
-        Swal.fire({
-          icon: "error",
-          title: "Token Not Found",
-          text: "Rajby token not found. Please login again.",
-        });
-        return;
-      }
-
       if (!selectedTenant) {
         Swal.fire({
           icon: "warning",
@@ -402,23 +391,18 @@ const Products = () => {
         },
       });
 
-      // Ensure Rajby token exists
-      if (!localStorage.getItem("Rajbytoken")) {
-        const loginData = await performRajbyLogin();
-        if (loginData?.token) {
-          localStorage.setItem("Rajbytoken", loginData.token);
-        }
-      }
-
-      // Fetch products directly from Rajby API
+      // Fetch products through backend - backend handles token management
       const response = await fetchRajbyProducts();
 
-      if (!response.data || !Array.isArray(response.data)) {
+      // Backend returns { success: true, data: [...] }
+      const productsData = response.data?.data || response.data;
+      
+      if (!productsData || !Array.isArray(productsData)) {
         throw new Error("Invalid response from API");
       }
 
       // Map external API data to internal format
-      const productsToSync = response.data.map((product) => ({
+      const productsToSync = productsData.map((product) => ({
         itemId: product.itemId || "",
         itemCode: product.itemCode || "",
         type: product.type || "",

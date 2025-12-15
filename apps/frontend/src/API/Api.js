@@ -50,19 +50,11 @@ const api = axios.create({
   // You can add headers or other config here if needed
 });
 
-// Rajby API base URL - direct connection
-export const RAJBY_API_BASE_URL = "http://103.104.84.43:5000";
-
-const DEFAULT_RAJBY_USERNAME = "innovative";
-const DEFAULT_RAJBY_PASSWORD = "K7#mP!vL9qW2xR$8";
-const getRajbyApiKey = () => import.meta.env.VITE_RAJBY_API_KEY || "";
-
+// Rajby API credentials helper (for backend login)
+// All Rajby API calls are now handled through backend routes
 const getRajbyCredentials = () => {
-  const userName =
-    import.meta.env.VITE_RAJBY_USERNAME || DEFAULT_RAJBY_USERNAME;
-  const password =
-    import.meta.env.VITE_RAJBY_PASSWORD || DEFAULT_RAJBY_PASSWORD;
-
+  const userName = import.meta.env.VITE_RAJBY_USERNAME || "innovative";
+  const password = import.meta.env.VITE_RAJBY_PASSWORD || "K7#mP!vL9qW2xR$8";
   return { userName, password };
 };
 
@@ -74,32 +66,16 @@ api.interceptors.request.use(
     const tenantId = localStorage.getItem("tenantId");
     const selectedTenant = localStorage.getItem("selectedTenant");
 
-    // Check if this is a Rajby API endpoint - use Rajbytoken instead
-    const isRajbyEndpoint = config.url.includes("/rajby-");
-    if (isRajbyEndpoint) {
-      const rajbyToken = localStorage.getItem("Rajbytoken");
-      if (rajbyToken) {
-        config.headers.Authorization = `Bearer ${rajbyToken}`;
-      }
-    } else {
-      // Use tenant token if available, otherwise use admin token
-      if (tenantToken) {
-        config.headers.Authorization = `Bearer ${tenantToken}`;
-      } else if (adminToken) {
-        config.headers.Authorization = `Bearer ${adminToken}`;
-      }
+    // Use tenant token if available, otherwise use admin token
+    // Backend handles Rajby token management internally
+    if (tenantToken) {
+      config.headers.Authorization = `Bearer ${tenantToken}`;
+    } else if (adminToken) {
+      config.headers.Authorization = `Bearer ${adminToken}`;
     }
 
-    // For invoice delete requests, also include Rajby token in custom header
-    // This allows backend to use the token from localStorage instead of fetching it
-    const isInvoiceDeleteRequest = config.method === "delete" && config.url.includes("/invoices/");
-    if (isInvoiceDeleteRequest) {
-      const rajbyToken = localStorage.getItem("Rajbytoken");
-      if (rajbyToken) {
-        config.headers["X-Rajby-Token"] = rajbyToken;
-        console.log("Added Rajby token to delete invoice request header");
-      }
-    }
+    // Check if this is a Rajby API endpoint
+    const isRajbyEndpoint = config.url.includes("/rajby-");
 
     // Skip tenant ID for authentication endpoints and Rajby endpoints
     const isAuthEndpoint =
@@ -206,90 +182,49 @@ export const debugTokenManager = () => {
   console.log("=== End Token Manager Debug ===");
 };
 
+// Rajby login - backend handles token management
+// Frontend doesn't need to store token anymore
 export const performRajbyLogin = async (credentials) => {
   const payload = credentials || getRajbyCredentials();
-  const apiKey = getRajbyApiKey();
 
   try {
-    const response = await axios.post(
-      `${RAJBY_API_BASE_URL}/api/Auth/login`,
-      payload,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/plain",
-          Authorization: apiKey,
-        },
-        timeout: 30000,
-      }
-    );
+    // Call backend route - backend will handle token management
+    const response = await api.post("/rajby-login", payload);
+    // Backend manages token internally, frontend doesn't need it
     return response.data;
   } catch (error) {
-    if (!apiKey) {
-      console.warn(
-        "Rajby API key not configured in VITE_RAJBY_API_KEY. Direct login may fail."
-      );
-    }
-    console.error(
-      "Direct Rajby login failed, falling back to backend proxy:",
-      error?.message || error
-    );
-    const proxyResponse = await api.post("/rajby-login");
-    return proxyResponse.data;
+    console.error("Rajby login failed:", error?.message || error);
+    throw error;
   }
 };
 
-// Direct Rajby API call for buyers
+// Get buyers from Rajby API through backend
+// Backend handles all token management - no token needed from frontend
 export const fetchRajbyBuyers = async () => {
-  const token = localStorage.getItem("Rajbytoken");
-  if (!token) {
-    throw new Error("Rajby token not available. Please login first.");
-  }
-  const response = await axios.get(
-    `${RAJBY_API_BASE_URL}/api/Buyer/local-invoice-buyers`,
-    {
-      headers: {
-        Accept: "text/plain",
-        Authorization: `Bearer ${token}`,
-      },
-      timeout: 30000,
-    }
-  );
+  // Call backend route - backend will handle token management
+  const response = await api.get("/rajby-buyers");
   return response;
 };
 
-// Direct Rajby API call for products
+// Get products from Rajby API through backend
+// Backend handles all token management - no token needed from frontend
 export const fetchRajbyProducts = async () => {
-  const token = localStorage.getItem("Rajbytoken");
-  if (!token) {
-    throw new Error("Rajby token not available. Please login first.");
-  }
-  const response = await axios.get(`${RAJBY_API_BASE_URL}/api/Item/all`, {
-    headers: {
-      Accept: "text/plain",
-      Authorization: `Bearer ${token}`,
-    },
-    timeout: 30000,
-  });
+  // Call backend route - backend will handle token management
+  const response = await api.get("/rajby-products");
   return response;
 };
 
-// Direct Rajby API call for deleting invoice
+// Delete invoice from Rajby API through backend
+// Backend handles all token management - no token needed from frontend
 export const deleteRajbyInvoice = async (companyInvoiceRefNo) => {
-  const token = localStorage.getItem("Rajbytoken");
-  if (!token) {
-    throw new Error("Rajby token not available. Please login first.");
-  }
   if (!companyInvoiceRefNo) {
     throw new Error("Company Invoice Reference Number is required");
   }
-  const response = await axios.delete(
-    `${RAJBY_API_BASE_URL}/api/InvoicingApi/delete/${encodeURIComponent(companyInvoiceRefNo)}`,
+  
+  // Call backend route - backend will handle token management
+  const response = await api.delete(
+    `/rajby-invoices/${encodeURIComponent(companyInvoiceRefNo)}`,
     {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${token}`,
-      },
       timeout: 60000, // 60 seconds timeout
     }
   );

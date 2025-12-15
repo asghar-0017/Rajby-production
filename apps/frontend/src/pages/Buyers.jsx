@@ -232,27 +232,6 @@ const Buyers = () => {
 
   const handleSync = async () => {
     try {
-      const ensureToken = async () => {
-        const newToken = await performRajbyLogin();
-        if (newToken?.token) {
-          localStorage.setItem("Rajbytoken", newToken.token);
-          return newToken.token;
-        }
-        throw new Error("Unable to refresh Rajby token.");
-      };
-
-      const getBuyersWithRetry = async () => {
-        try {
-          return await fetchRajbyBuyers();
-        } catch (error) {
-          if (error.response?.status === 401) {
-            await ensureToken();
-            return await fetchRajbyBuyers();
-          }
-          throw error;
-        }
-      };
-
       if (!selectedTenant) {
         Swal.fire({
           icon: "warning",
@@ -272,19 +251,18 @@ const Buyers = () => {
         },
       });
 
-      // Fetch buyers from backend proxy for external API
-      if (!localStorage.getItem("Rajbytoken")) {
-        await ensureToken();
-      }
+      // Fetch buyers through backend - backend handles token management
+      const response = await fetchRajbyBuyers();
 
-      const response = await getBuyersWithRetry();
-
-      if (!response.data || !Array.isArray(response.data)) {
+      // Backend returns { success: true, data: [...] }
+      const buyersData = response.data?.data || response.data;
+      
+      if (!buyersData || !Array.isArray(buyersData)) {
         throw new Error("Invalid response from API");
       }
 
       // Map external API data to internal format
-      const buyersToSync = response.data.map((buyer) => ({
+      const buyersToSync = buyersData.map((buyer) => ({
         buyerId: buyer.buyerId || "",
         buyerMainName: buyer.buyerMainName || "",
         buyerNTNCNIC: buyer.ntnno || "",

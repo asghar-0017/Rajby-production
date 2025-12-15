@@ -26,6 +26,7 @@ import invoiceRoutes, { publicInvoiceRoutes } from "./routes/invoiceRoutes.js";
 import invoiceBackupRoutes from "./routes/invoiceBackupRoutes.js";
 import hsCodeRoutes from "./routes/hsCodeRoutes.js";
 import performanceRoutes from "./routes/performanceRoutes.js";
+import rajbyRoutes from "./routes/rajbyRoutes.js";
 
 dotenv.config();
 
@@ -117,6 +118,9 @@ app.use("/api", hsCodeRoutes);
 // Public Invoice Routes
 app.use("/api", publicInvoiceRoutes);
 
+// Rajby API Routes (proxy to Rajby API)
+app.use("/api", rajbyRoutes);
+
 // Lightweight proxy to bypass browser CORS for buyer registration check
 app.post("/api/buyer-check", async (req, res) => {
   try {
@@ -147,179 +151,8 @@ app.post("/api/buyer-check", async (req, res) => {
   }
 });
 
-// Proxy endpoint for external Rajby login API to bypass CORS
-app.post("/api/rajby-login", async (req, res) => {
-  try {
-    const axios = (await import("axios")).default;
-    if (!RAJBY_API_KEY) {
-      console.warn(
-        "RAJBY_API_KEY not configured; external Rajby login may fail authentication."
-      );
-    }
-    const upstream = await axios.post(
-      "http://103.104.84.43:5000/api/Auth/login",
-      {
-        userName: RAJBY_USERNAME,
-        password: RAJBY_PASSWORD,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/plain",
-          Authorization: RAJBY_API_KEY,
-        },
-        timeout: 30000,
-      }
-    );
-
-    return res.status(200).json(upstream.data);
-  } catch (err) {
-    const status = err?.response?.status || 500;
-    const data = err?.response?.data || {
-      error: "External API request failed",
-    };
-    console.error("/api/rajby-login proxy error:", status, data);
-    return res.status(status).json({ error: data?.error || "Proxy error" });
-  }
-});
-
-// Rajby API token cache
-let rajbyTokenCache = {
-  token: null,
-  expiresAt: null,
-};
-
-// Helper to get fresh Rajby token
-async function getRajbyToken() {
-  const axios = (await import("axios")).default;
-
-  // Return cached token if still valid (with 5 min buffer)
-  if (
-    rajbyTokenCache.token &&
-    rajbyTokenCache.expiresAt &&
-    Date.now() < rajbyTokenCache.expiresAt - 300000
-  ) {
-    return rajbyTokenCache.token;
-  }
-
-  console.log("Fetching new Rajby token...");
-  const loginResponse = await axios.post(
-    "http://103.104.84.43:5000/api/Auth/login",
-    {
-      userName: "innovative",
-      password: "K7#mP!vL9qW2xR$8",
-    },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/plain",
-      },
-      timeout: 10000,
-    }
-  );
-
-  console.log("Rajby login response:", JSON.stringify(loginResponse.data));
-  const token =
-    loginResponse.data?.token ||
-    loginResponse.data?.accessToken ||
-    loginResponse.data?.data?.token ||
-    loginResponse.data;
-  if (!token || typeof token !== "string") {
-    console.error(
-      "Token extraction failed. Response data:",
-      loginResponse.data
-    );
-    throw new Error("Failed to get token from Rajby login API");
-  }
-
-  // Cache token for 24 hours (or parse exp from JWT if needed)
-  rajbyTokenCache.token = token;
-  rajbyTokenCache.expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-  console.log("Rajby token refreshed successfully");
-
-  return token;
-}
-
-// Proxy endpoint for external Rajby buyers API
-app.get("/api/rajby-buyers", async (req, res) => {
-  try {
-    const token = await getRajbyToken();
-
-    const axios = (await import("axios")).default;
-    const upstream = await axios.get(
-      "http://103.104.84.43:5000/api/Buyer/local-invoice-buyers",
-      {
-        headers: {
-          Accept: "text/plain",
-          Authorization: `Bearer ${token}`,
-        },
-        timeout: 10000,
-      }
-    );
-
-    return res.status(200).json(upstream.data);
-  } catch (err) {
-    const status = err?.response?.status || 500;
-    const data = err?.response?.data || {
-      error: "External API request failed",
-    };
-
-    console.error("/api/rajby-buyers proxy error:", {
-      status,
-      data,
-      message: err.message,
-    });
-
-    // Clear token cache on auth failure
-    if (status === 401) {
-      rajbyTokenCache.token = null;
-      rajbyTokenCache.expiresAt = null;
-    }
-
-    return res
-      .status(status)
-      .json({ error: data?.error || data?.message || "Proxy error" });
-  }
-});
-
-// Proxy endpoint for external Rajby products API
-app.get("/api/rajby-products", async (req, res) => {
-  try {
-    const token = await getRajbyToken();
-
-    const axios = (await import("axios")).default;
-    const upstream = await axios.get("http://103.104.84.43:5000/api/Item/all", {
-      headers: {
-        Accept: "text/plain",
-        Authorization: `Bearer ${token}`,
-      },
-      timeout: 10000,
-    });
-
-    return res.status(200).json(upstream.data);
-  } catch (err) {
-    const status = err?.response?.status || 500;
-    const data = err?.response?.data || {
-      error: "External API request failed",
-    };
-
-    console.error("/api/rajby-products proxy error:", {
-      status,
-      data,
-      message: err.message,
-    });
-
-    // Clear token cache on auth failure
-    if (status === 401) {
-      rajbyTokenCache.token = null;
-      rajbyTokenCache.expiresAt = null;
-    }
-
-    return res
-      .status(status)
-      .json({ error: data?.error || data?.message || "Proxy error" });
-  }
-});
+// Note: Rajby API routes are now handled by rajbyRoutes.js
+// Old inline routes removed - all Rajby API calls now go through /api/rajby-* routes
 
 // Serve static files from frontend build with proper MIME types
 app.use(
