@@ -50,19 +50,31 @@ export async function getRajbyToken(providedToken = null) {
         await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
       }
       
+      // Configure axios with proxy support if available
+      const axiosConfig = {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/plain",
+        },
+        timeout: 30000, // 30 seconds timeout
+      };
+
+      // Add proxy support if HTTP_PROXY or HTTPS_PROXY is set
+      if (process.env.HTTP_PROXY || process.env.HTTPS_PROXY) {
+        const { HttpsProxyAgent } = await import('https-proxy-agent');
+        const proxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY;
+        const agent = new HttpsProxyAgent(proxyUrl);
+        axiosConfig.httpAgent = agent;
+        axiosConfig.httpsAgent = agent;
+      }
+
       loginResponse = await axios.post(
         `${RAJBY_API_BASE_URL}/api/Auth/login`,
         {
           userName: RAJBY_USERNAME,
           password: RAJBY_PASSWORD,
         },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/plain",
-          },
-          timeout: 30000, // 30 seconds timeout
-        }
+        axiosConfig
       );
       
       // If we get here, the request succeeded
