@@ -113,10 +113,59 @@ export const testMasterConnection = async () => {
 // Initialize master database
 export const initializeMasterDatabase = async () => {
   try {
+    // Clean up tenants table indexes if needed before syncing
+    try {
+      const [indexCount] = await masterSequelize.query(
+        `SELECT COUNT(DISTINCT INDEX_NAME) as count 
+         FROM information_schema.STATISTICS 
+         WHERE table_schema = DATABASE() 
+         AND table_name = 'tenants'`
+      );
+      
+      if (indexCount[0]?.count >= 60) {
+        console.log(`⚠️  Tenants table has ${indexCount[0].count} indexes. Cleaning up before sync...`);
+        
+        // Get all non-essential indexes
+        const [allIndexes] = await masterSequelize.query(
+          `SELECT DISTINCT INDEX_NAME 
+           FROM information_schema.STATISTICS 
+           WHERE table_schema = DATABASE() 
+           AND table_name = 'tenants'
+           AND INDEX_NAME NOT IN ('PRIMARY', 'tenant_id', 'seller_ntn_cnic', 'database_name')
+           AND INDEX_NAME NOT LIKE 'idx_tenants_%'`
+        );
+        
+        // Remove non-essential indexes
+        for (const idx of allIndexes) {
+          try {
+            await masterSequelize.query(
+              `ALTER TABLE \`tenants\` DROP INDEX \`${idx.INDEX_NAME}\``
+            );
+          } catch (err) {
+            // Ignore errors for indexes that don't exist
+          }
+        }
+      }
+    } catch (cleanupError) {
+      console.warn("⚠️  Could not clean up indexes before sync:", cleanupError.message);
+    }
+    
     // Use alter: true to create missing tables and columns
-    await masterSequelize.sync({ alter: true });
-    console.log("✅ Master database synchronized successfully.");
-    return true;
+    try {
+      await masterSequelize.sync({ alter: true });
+      console.log("✅ Master database synchronized successfully.");
+      return true;
+    } catch (syncError) {
+      // If we get "too many keys" error, try to handle it gracefully
+      if (syncError.message?.includes('Too many keys') || syncError.message?.includes('ER_TOO_MANY_KEYS')) {
+        console.error("❌ Error synchronizing master database: Too many keys on tenants table");
+        console.error("   This usually means the tenants table has accumulated too many indexes.");
+        console.error("   Please run the fix-tenants-indexes.js script to clean up indexes.");
+        // Don't throw - allow application to continue
+        return false;
+      }
+      throw syncError;
+    }
   } catch (error) {
     console.error("❌ Error synchronizing master database:", error);
     return false;

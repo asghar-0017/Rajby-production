@@ -89,8 +89,102 @@ class AutoSchemaSync {
     }
   }
 
+  async cleanupTenantsIndexes() {
+    try {
+      // Check current index count
+      const [indexes] = await masterSequelize.query(
+        `SELECT COUNT(DISTINCT INDEX_NAME) as count 
+         FROM information_schema.STATISTICS 
+         WHERE table_schema = DATABASE() 
+         AND table_name = 'tenants'`
+      );
+      
+      const indexCount = indexes[0]?.count || 0;
+      
+      // If we're close to or over the limit, clean up
+      if (indexCount >= 60) {
+        this.log(`Tenants table has ${indexCount} indexes (limit: 64). Cleaning up...`, 'warn');
+        
+        // Get all indexes
+        const [allIndexes] = await masterSequelize.query(
+          `SELECT DISTINCT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
+           FROM information_schema.STATISTICS 
+           WHERE table_schema = DATABASE() 
+           AND table_name = 'tenants'
+           ORDER BY INDEX_NAME`
+        );
+        
+        // Essential indexes to keep
+        const essentialIndexNames = ['PRIMARY', 'tenant_id', 'seller_ntn_cnic', 'database_name'];
+        const essentialIndexes = allIndexes.filter(idx => 
+          essentialIndexNames.includes(idx.INDEX_NAME) || 
+          idx.INDEX_NAME.startsWith('idx_tenants_')
+        );
+        
+        // Remove non-essential indexes
+        const indexesToRemove = allIndexes.filter(idx => 
+          !essentialIndexes.some(e => e.INDEX_NAME === idx.INDEX_NAME)
+        );
+        
+        for (const index of indexesToRemove) {
+          try {
+            await masterSequelize.query(
+              `ALTER TABLE \`tenants\` DROP INDEX \`${index.INDEX_NAME}\``
+            );
+            this.log(`Removed non-essential index: ${index.INDEX_NAME}`);
+          } catch (error) {
+            // Ignore errors for indexes that don't exist or can't be dropped
+            if (!error.message.includes("check that column/key exists") && 
+                !error.message.includes("Can't DROP")) {
+              this.log(`Could not remove index ${index.INDEX_NAME}: ${error.message}`, 'warn');
+            }
+          }
+        }
+        
+        // Ensure essential unique indexes exist
+        const essentialUniqueIndexes = [
+          { name: 'tenant_id', column: 'tenant_id' },
+          { name: 'seller_ntn_cnic', column: 'seller_ntn_cnic' }
+        ];
+        
+        for (const idx of essentialUniqueIndexes) {
+          try {
+            // Check if unique constraint/index already exists
+            const [existing] = await masterSequelize.query(
+              `SELECT COUNT(*) as count 
+               FROM information_schema.STATISTICS 
+               WHERE table_schema = DATABASE() 
+               AND table_name = 'tenants' 
+               AND column_name = ? 
+               AND NON_UNIQUE = 0`,
+              { replacements: [idx.column] }
+            );
+            
+            if (existing[0].count === 0) {
+              // Create unique index if it doesn't exist
+              await masterSequelize.query(
+                `CREATE UNIQUE INDEX \`${idx.name}\` ON \`tenants\` (\`${idx.column}\`)`
+              );
+              this.log(`Created unique index: ${idx.name}`);
+            }
+          } catch (error) {
+            if (!error.message.includes('Duplicate key name')) {
+              this.log(`Could not create index ${idx.name}: ${error.message}`, 'warn');
+            }
+          }
+        }
+      }
+    } catch (error) {
+      this.log(`Error cleaning up tenants indexes: ${error.message}`, 'warn');
+      // Don't throw - allow sync to continue
+    }
+  }
+
   async syncMasterDatabase() {
     this.log('Synchronizing master database schema...');
+    
+    // Clean up tenants table indexes before syncing to avoid "too many keys" error
+    await this.cleanupTenantsIndexes();
     
     const models = [
       { name: 'Tenant', model: Tenant },
@@ -109,14 +203,38 @@ class AutoSchemaSync {
 
     for (const { name, model } of models) {
       try {
-        await this.retryOperation(
-          () => model.sync({ force: false, alter: true }),
-          `Sync master table ${name}`
-        );
+        // For Tenant model, use a more careful sync approach
+        if (name === 'Tenant') {
+          try {
+            await this.retryOperation(
+              () => model.sync({ force: false, alter: true }),
+              `Sync master table ${name}`
+            );
+          } catch (error) {
+            // If we get "too many keys" error, try to clean up and retry once
+            if (error.message.includes('Too many keys') || error.message.includes('ER_TOO_MANY_KEYS')) {
+              this.log(`Too many keys error detected, cleaning up indexes...`, 'warn');
+              await this.cleanupTenantsIndexes();
+              // Retry once after cleanup
+              await this.retryOperation(
+                () => model.sync({ force: false, alter: true }),
+                `Sync master table ${name} (retry after cleanup)`
+              );
+            } else {
+              throw error;
+            }
+          }
+        } else {
+          await this.retryOperation(
+            () => model.sync({ force: false, alter: true }),
+            `Sync master table ${name}`
+          );
+        }
         this.results.tablesCreated++;
         this.log(`Master table synchronized: ${model.getTableName()}`);
       } catch (error) {
         this.log(`Failed to sync master table ${name}: ${error.message}`, 'error');
+        // Don't throw - continue with other tables
       }
     }
 

@@ -30,20 +30,70 @@ export async function getRajbyToken(providedToken = null) {
   }
 
   console.log("Fetching new Rajby token...");
-  const loginResponse = await axios.post(
-    "http://103.104.84.43:5000/api/Auth/login",
-    {
-      userName: "innovative",
-      password: "K7#mP!vL9qW2xR$8",
-    },
-    {
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "text/plain",
-      },
-      timeout: 30000, // Increased timeout to 30 seconds
+  
+  // Retry logic for network issues
+  const maxRetries = 2;
+  let lastError = null;
+  let loginResponse = null;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (attempt > 0) {
+        console.log(`Rajby token fetch attempt ${attempt + 1}, retrying...`);
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+      }
+      
+      loginResponse = await axios.post(
+        "http://103.104.84.43:5000/api/Auth/login",
+        {
+          userName: "innovative",
+          password: "K7#mP!vL9qW2xR$8",
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/plain",
+          },
+          timeout: 30000, // 30 seconds timeout
+        }
+      );
+      
+      // If we get here, the request succeeded
+      break;
+    } catch (error) {
+      lastError = error;
+      
+      // If it's a timeout or connection error and we have retries left, retry
+      if (
+        (error.code === 'ECONNABORTED' || 
+         error.code === 'ETIMEDOUT' || 
+         error.code === 'ECONNREFUSED' ||
+         error.message?.includes('timeout')) &&
+        attempt < maxRetries
+      ) {
+        console.warn(`Rajby token fetch attempt ${attempt + 1} failed: ${error.message}, will retry...`);
+        continue;
+      }
+      
+      // If it's not a retryable error or we're out of retries, break
+      break;
     }
-  );
+  }
+  
+  // If all retries failed, throw a user-friendly error
+  if (!loginResponse) {
+    if (
+      lastError?.code === 'ECONNABORTED' ||
+      lastError?.code === 'ETIMEDOUT' ||
+      lastError?.code === 'ECONNREFUSED' ||
+      lastError?.message?.includes('timeout')
+    ) {
+      console.error("Rajby API is unavailable (timeout/connection error). Using cached token if available, or throwing error.");
+      throw new Error("Rajby API is currently unavailable. Please try again later.");
+    }
+    throw lastError || new Error("Failed to fetch Rajby token");
+  }
 
   console.log("Rajby login response:", JSON.stringify(loginResponse.data));
   const token =

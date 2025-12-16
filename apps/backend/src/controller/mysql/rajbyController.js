@@ -19,37 +19,83 @@ export const login = async (req, res) => {
       password: password || RAJBY_PASSWORD,
     };
 
-    const response = await axios.post(
-      `${RAJBY_API_BASE_URL}/api/Auth/login`,
-      credentials,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/plain",
-          ...(RAJBY_API_KEY && { Authorization: RAJBY_API_KEY }),
-        },
-        timeout: 30000,
+    // Retry logic for network issues
+    const maxRetries = 2;
+    let lastError = null;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await axios.post(
+          `${RAJBY_API_BASE_URL}/api/Auth/login`,
+          credentials,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/plain",
+              ...(RAJBY_API_KEY && { Authorization: RAJBY_API_KEY }),
+            },
+            timeout: 30000,
+          }
+        );
+
+        // Extract token from response
+        const token =
+          response.data?.token ||
+          response.data?.accessToken ||
+          response.data?.data?.token ||
+          response.data;
+
+        return res.status(200).json({
+          success: true,
+          data: {
+            token,
+            ...response.data,
+          },
+        });
+      } catch (error) {
+        lastError = error;
+        
+        // If it's a timeout or connection error and we have retries left, retry
+        if (
+          (error.code === 'ECONNABORTED' || 
+           error.code === 'ETIMEDOUT' || 
+           error.code === 'ECONNREFUSED' ||
+           error.message?.includes('timeout')) &&
+          attempt < maxRetries
+        ) {
+          console.warn(`Rajby login attempt ${attempt + 1} failed, retrying... (${error.message})`);
+          // Wait before retrying (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          continue;
+        }
+        
+        // If it's not a retryable error or we're out of retries, break
+        break;
       }
-    );
+    }
 
-    // Extract token from response
-    const token =
-      response.data?.token ||
-      response.data?.accessToken ||
-      response.data?.data?.token ||
-      response.data;
+    // If we get here, all retries failed
+    console.error("Rajby login error (all retries exhausted):", lastError);
+    
+    // Handle timeout/connection errors gracefully
+    if (
+      lastError?.code === 'ECONNABORTED' ||
+      lastError?.code === 'ETIMEDOUT' ||
+      lastError?.code === 'ECONNREFUSED' ||
+      lastError?.message?.includes('timeout')
+    ) {
+      return res.status(503).json({
+        success: false,
+        message: "Rajby API is currently unavailable. Please try again later.",
+        error: {
+          type: "connection_error",
+          message: "Unable to connect to Rajby API. The service may be temporarily unavailable.",
+        },
+      });
+    }
 
-    return res.status(200).json({
-      success: true,
-      data: {
-        token,
-        ...response.data,
-      },
-    });
-  } catch (error) {
-    console.error("Rajby login error:", error);
-    const status = error.response?.status || 500;
-    const data = error.response?.data || {
+    const status = lastError?.response?.status || 500;
+    const data = lastError?.response?.data || {
       error: "Rajby login failed",
     };
 
@@ -57,6 +103,13 @@ export const login = async (req, res) => {
       success: false,
       message: data?.error || data?.message || "Rajby login failed",
       error: data,
+    });
+  } catch (error) {
+    console.error("Rajby login unexpected error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred during Rajby login",
+      error: error.message,
     });
   }
 };
