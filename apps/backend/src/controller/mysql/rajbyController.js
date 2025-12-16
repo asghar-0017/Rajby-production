@@ -1,7 +1,7 @@
 import { getRajbyToken, deleteRajbyInvoice } from "../../service/RajbyService.js";
 import axios from "axios";
 
-const RAJBY_API_BASE_URL = "http://103.104.84.43:5000";
+const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
 
 /**
  * Login to Rajby API
@@ -63,7 +63,10 @@ export const login = async (req, res) => {
            error.message?.includes('timeout')) &&
           attempt < maxRetries
         ) {
-          console.warn(`Rajby login attempt ${attempt + 1} failed, retrying... (${error.message})`);
+          // Only log retry attempts in development or if explicitly enabled
+          if (process.env.NODE_ENV === 'development' || process.env.RAJBY_DEBUG === 'true') {
+            console.warn(`Rajby login attempt ${attempt + 1} failed, retrying... (${error.message})`);
+          }
           // Wait before retrying (exponential backoff)
           await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
           continue;
@@ -75,24 +78,32 @@ export const login = async (req, res) => {
     }
 
     // If we get here, all retries failed
-    console.error("Rajby login error (all retries exhausted):", lastError);
-    
-    // Handle timeout/connection errors gracefully
+    // Handle timeout/connection errors gracefully with minimal logging
     if (
       lastError?.code === 'ECONNABORTED' ||
       lastError?.code === 'ETIMEDOUT' ||
       lastError?.code === 'ECONNREFUSED' ||
+      lastError?.code === 'ENOTFOUND' ||
+      lastError?.code === 'EHOSTUNREACH' ||
       lastError?.message?.includes('timeout')
     ) {
+      // Only log a concise warning, not the full stack trace
+      const errorType = lastError?.code || 'timeout';
+      console.warn(`⚠️  Rajby API unavailable (${errorType}): Cannot reach ${RAJBY_API_BASE_URL}. This is non-critical.`);
+      
       return res.status(503).json({
         success: false,
         message: "Rajby API is currently unavailable. Please try again later.",
         error: {
           type: "connection_error",
-          message: "Unable to connect to Rajby API. The service may be temporarily unavailable.",
+          code: errorType,
+          message: `Unable to connect to Rajby API at ${RAJBY_API_BASE_URL}. The service may be temporarily unavailable or unreachable from this server.`,
         },
       });
     }
+    
+    // For other errors, log more details (but still concise)
+    console.error(`Rajby login error: ${lastError?.message || lastError?.code || 'Unknown error'}`);
 
     const status = lastError?.response?.status || 500;
     const data = lastError?.response?.data || {
@@ -105,11 +116,12 @@ export const login = async (req, res) => {
       error: data,
     });
   } catch (error) {
-    console.error("Rajby login unexpected error:", error);
+    // Log only the message, not the full error object to avoid stack traces
+    console.error(`Rajby login unexpected error: ${error?.message || error?.code || 'Unknown error'}`);
     return res.status(500).json({
       success: false,
       message: "An unexpected error occurred during Rajby login",
-      error: error.message,
+      error: error?.message || 'Unknown error',
     });
   }
 };

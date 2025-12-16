@@ -29,7 +29,11 @@ export async function getRajbyToken(providedToken = null) {
     return rajbyTokenCache.token;
   }
 
-  console.log("Fetching new Rajby token...");
+  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
+  const RAJBY_USERNAME = process.env.RAJBY_USERNAME || "innovative";
+  const RAJBY_PASSWORD = process.env.RAJBY_PASSWORD || "K7#mP!vL9qW2xR$8";
+  
+  console.log(`Fetching new Rajby token from ${RAJBY_API_BASE_URL}...`);
   
   // Retry logic for network issues
   const maxRetries = 2;
@@ -39,16 +43,18 @@ export async function getRajbyToken(providedToken = null) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        console.log(`Rajby token fetch attempt ${attempt + 1}, retrying...`);
+        if (process.env.NODE_ENV === 'development' || process.env.RAJBY_DEBUG === 'true') {
+          console.log(`Rajby token fetch attempt ${attempt + 1}, retrying...`);
+        }
         // Wait before retrying (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
       }
       
       loginResponse = await axios.post(
-        "http://103.104.84.43:5000/api/Auth/login",
+        `${RAJBY_API_BASE_URL}/api/Auth/login`,
         {
-          userName: "innovative",
-          password: "K7#mP!vL9qW2xR$8",
+          userName: RAJBY_USERNAME,
+          password: RAJBY_PASSWORD,
         },
         {
           headers: {
@@ -72,7 +78,10 @@ export async function getRajbyToken(providedToken = null) {
          error.message?.includes('timeout')) &&
         attempt < maxRetries
       ) {
-        console.warn(`Rajby token fetch attempt ${attempt + 1} failed: ${error.message}, will retry...`);
+        // Only log retry attempts in development or if explicitly enabled
+        if (process.env.NODE_ENV === 'development' || process.env.RAJBY_DEBUG === 'true') {
+          console.warn(`Rajby token fetch attempt ${attempt + 1} failed: ${error.message}, will retry...`);
+        }
         continue;
       }
       
@@ -87,10 +96,15 @@ export async function getRajbyToken(providedToken = null) {
       lastError?.code === 'ECONNABORTED' ||
       lastError?.code === 'ETIMEDOUT' ||
       lastError?.code === 'ECONNREFUSED' ||
+      lastError?.code === 'ENOTFOUND' ||
+      lastError?.code === 'EHOSTUNREACH' ||
       lastError?.message?.includes('timeout')
     ) {
-      console.error("Rajby API is unavailable (timeout/connection error). Using cached token if available, or throwing error.");
-      throw new Error("Rajby API is currently unavailable. Please try again later.");
+      // Log a concise warning with diagnostic info
+      const errorType = lastError?.code || 'timeout';
+      console.warn(`⚠️  Rajby API unavailable (${errorType}): Cannot reach ${RAJBY_API_BASE_URL}. The application will continue but Rajby features may be unavailable.`);
+      console.warn(`   This usually indicates a network/firewall issue. Check if the production server can reach ${RAJBY_API_BASE_URL}`);
+      throw new Error(`Rajby API is currently unavailable (${errorType}). Please check network connectivity or try again later.`);
     }
     throw lastError || new Error("Failed to fetch Rajby token");
   }
@@ -130,6 +144,7 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1, provi
   }
 
   const axios = (await import("axios")).default;
+  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
   
   // Get token with retry logic - use provided token if available
   let token;
@@ -140,7 +155,7 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1, provi
     throw new Error(`Failed to get Rajby token: ${tokenError.message}`);
   }
 
-  const url = `http://103.104.84.43:5000/api/InvoicingApi/delete/${encodeURIComponent(companyInvoiceRefNo)}`;
+  const url = `${RAJBY_API_BASE_URL}/api/InvoicingApi/delete/${encodeURIComponent(companyInvoiceRefNo)}`;
   
   console.log(`[Rajby API] DELETE Request URL: ${url}`);
   console.log(`[Rajby API] Using token: ${token ? token.substring(0, 20) + '...' : 'NO TOKEN'}`);
