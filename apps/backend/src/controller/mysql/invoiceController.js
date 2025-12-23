@@ -23,7 +23,7 @@ import Tenant from "../../model/mysql/Tenant.js";
 import hsCodeCacheService from "../../service/HSCodeCacheService.js";
 import { logAuditEvent } from "../../middleWare/auditMiddleware.js";
 import InvoiceBackupService from "../../service/InvoiceBackupService.js";
-import { deleteRajbyInvoice } from "../../service/RajbyService.js";
+import { deleteRajbyInvoice, submitFBRReference } from "../../service/RajbyService.js";
 
 const { toWords } = numberToWords;
 
@@ -5067,6 +5067,50 @@ export const submitSavedInvoice = async (req, res) => {
 
       status: updatedInvoice.status,
     });
+
+    // Call Rajby FBR Reference API after successful FBR submission
+    if (updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber) {
+      try {
+        // Reload invoice items to get updated InvoiceDetId values
+        const invoiceItemsWithDetails = await InvoiceItem.findAll({
+          where: { invoice_id: updatedInvoice.id },
+          attributes: ['InvoiceDetId'],
+        });
+
+        // Prepare invoiceDetails array from invoice items
+        const invoiceDetails = invoiceItemsWithDetails
+          .filter(item => item.InvoiceDetId) // Only include items with InvoiceDetId
+          .map(item => ({
+            detInvNo: item.InvoiceDetId,
+            fbrNo: item.InvoiceDetId, // Using InvoiceDetId as fbrNo (can be adjusted based on actual requirement)
+          }));
+
+        // Call Rajby FBR Reference API
+        const invoiceDateFormatted = updatedInvoice.invoiceDate 
+          ? (updatedInvoice.invoiceDate instanceof Date 
+              ? updatedInvoice.invoiceDate.toISOString().split('T')[0]
+              : new Date(updatedInvoice.invoiceDate).toISOString().split('T')[0])
+          : null;
+
+        if (!invoiceDateFormatted) {
+          console.warn("⚠️ Cannot call Rajby FBR Reference API: invoiceDate is missing");
+        } else {
+          const rajbyReferenceResult = await submitFBRReference({
+            fbrInvoiceNumber: fbrInvoiceNumber,
+            companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
+            invoiceDate: invoiceDateFormatted,
+            invoiceDetails: invoiceDetails,
+          });
+
+        }
+
+        console.log("Rajby FBR Reference API called successfully:", rajbyReferenceResult);
+      } catch (rajbyError) {
+        // Log error but don't fail the invoice submission
+        console.error("❌ Error calling Rajby FBR Reference API:", rajbyError.message);
+        // Continue with the rest of the flow even if Rajby API call fails
+      }
+    }
 
     // Log audit event for invoice submission to FBR
     await logAuditEvent(

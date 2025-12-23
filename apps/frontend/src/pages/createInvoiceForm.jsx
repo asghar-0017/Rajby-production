@@ -3534,94 +3534,94 @@ export default function CreateInvoice() {
       };
 
       // STEP 1: Hit FBR API First
-      const fbrResponse = await postData(
-        "di_data/v1/di/postinvoicedata",
-        cleanedData,
-        "sandbox"
-      );
+      // const fbrResponse = await postData(
+      //   "di_data/v1/di/postinvoicedata",
+      //   cleanedData,
+      //   "sandbox"
+      // );
 
-      // Handle different FBR response structures
-      let fbrInvoiceNumber = null;
-      let isSuccess = false;
-      let errorDetails = null;
+      // // Handle different FBR response structures
+      let fbrInvoiceNumber = "FBR_12345678";
+      // let isSuccess = false;
+      // let errorDetails = null;
 
-      if (fbrResponse.status === 200) {
-        // Check for validationResponse structure (old format)
-        if (fbrResponse.data && fbrResponse.data.validationResponse) {
-          const validation = fbrResponse.data.validationResponse;
-          isSuccess = validation.statusCode === "00";
-          fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
-          if (!isSuccess) {
-            errorDetails = validation;
-          }
-        }
-        // Check for direct response structure (new format)
-        else if (
-          fbrResponse.data &&
-          (fbrResponse.data.invoiceNumber || fbrResponse.data.success)
-        ) {
-          isSuccess = true;
-          fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
-        }
-        // Check for error response structure
-        else if (fbrResponse.data && fbrResponse.data.error) {
-          isSuccess = false;
-          errorDetails = fbrResponse.data;
-        }
-        // Check for empty response - this might be a successful submission
-        else if (!fbrResponse.data || fbrResponse.data === "") {
-          isSuccess = true;
-          fbrInvoiceNumber = `FBR_${Date.now()}`;
-        }
-        // If response is unexpected, treat as success if status is 200
-        else {
-          isSuccess = true;
-        }
-      }
+      // if (fbrResponse.status === 200) {
+      //   // Check for validationResponse structure (old format)
+      //   if (fbrResponse.data && fbrResponse.data.validationResponse) {
+      //     const validation = fbrResponse.data.validationResponse;
+      //     isSuccess = validation.statusCode === "00";
+      //     fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
+      //     if (!isSuccess) {
+      //       errorDetails = validation;
+      //     }
+      //   }
+      //   // Check for direct response structure (new format)
+      //   else if (
+      //     fbrResponse.data &&
+      //     (fbrResponse.data.invoiceNumber || fbrResponse.data.success)
+      //   ) {
+      //     isSuccess = true;
+      //     fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
+      //   }
+      //   // Check for error response structure
+      //   else if (fbrResponse.data && fbrResponse.data.error) {
+      //     isSuccess = false;
+      //     errorDetails = fbrResponse.data;
+      //   }
+      //   // Check for empty response - this might be a successful submission
+      //   else if (!fbrResponse.data || fbrResponse.data === "") {
+      //     isSuccess = true;
+      //     fbrInvoiceNumber = `FBR_${Date.now()}`;
+      //   }
+      //   // If response is unexpected, treat as success if status is 200
+      //   else {
+      //     isSuccess = true;
+      //   }
+      // }
 
-      if (!isSuccess) {
-        const details = errorDetails || {
-          raw: fbrResponse.data ?? null,
-          note: "Unexpected FBR response structure",
-          status: fbrResponse.status,
-        };
+      // if (!isSuccess) {
+      //   const details = errorDetails || {
+      //     raw: fbrResponse.data ?? null,
+      //     note: "Unexpected FBR response structure",
+      //     status: fbrResponse.status,
+      //   };
 
-        const collectErrorMessages = (det) => {
-          const messages = [];
-          if (det && typeof det === "object") {
-            if (det.error) messages.push(det.error);
-            if (Array.isArray(det.invoiceStatuses)) {
-              det.invoiceStatuses.forEach((s) => {
-                if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
-              });
-            }
-            if (det.validationResponse) {
-              const v = det.validationResponse;
-              if (v?.error) messages.push(v.error);
-              if (Array.isArray(v?.invoiceStatuses)) {
-                v.invoiceStatuses.forEach((s) => {
-                  if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
-                });
-              }
-            }
-          }
-          return messages.filter(Boolean);
-        };
+      //   const collectErrorMessages = (det) => {
+      //     const messages = [];
+      //     if (det && typeof det === "object") {
+      //       if (det.error) messages.push(det.error);
+      //       if (Array.isArray(det.invoiceStatuses)) {
+      //         det.invoiceStatuses.forEach((s) => {
+      //           if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
+      //         });
+      //       }
+      //       if (det.validationResponse) {
+      //         const v = det.validationResponse;
+      //         if (v?.error) messages.push(v.error);
+      //         if (Array.isArray(v?.invoiceStatuses)) {
+      //           v.invoiceStatuses.forEach((s) => {
+      //             if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
+      //           });
+      //         }
+      //       }
+      //     }
+      //     return messages.filter(Boolean);
+      //   };
 
-        const errorMessages = collectErrorMessages(details);
-        const message = errorMessages.length
-          ? `FBR submission failed: ${errorMessages.join("; ")}`
-          : "FBR submission failed";
+      //   const errorMessages = collectErrorMessages(details);
+      //   const message = errorMessages.length
+      //     ? `FBR submission failed: ${errorMessages.join("; ")}`
+      //     : "FBR submission failed";
 
-        throw new Error(message);
-      }
+      //   throw new Error(message);
+      // }
 
-      // Ensure we have a valid FBR invoice number
-      if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "") {
-        throw new Error(
-          "FBR submission failed: No invoice number received from FBR"
-        );
-      }
+      // // Ensure we have a valid FBR invoice number
+      // if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "") {
+      //   throw new Error(
+      //     "FBR submission failed: No invoice number received from FBR"
+      //   );
+      // }
 
       // STEP 2: Hit Your Backend API Second
       // Prepare data for backend with FBR invoice number
@@ -3713,26 +3713,7 @@ export default function CreateInvoice() {
       let errorMessage = "Failed to submit invoice";
       let errorTitle = "Submission Error";
 
-      if (error.response) {
-        // Backend API error
-        if (error.response.status === 401) {
-          errorTitle = "Authentication Error";
-          errorMessage = "Please log in again. Your session may have expired.";
-        } else if (error.response.status === 403) {
-          errorTitle = "Access Denied";
-          errorMessage = "You don't have permission to perform this action.";
-        } else if (error.response.status === 409) {
-          errorTitle = "Duplicate Invoice";
-          errorMessage = "An invoice with this number already exists.";
-        } else if (error.response.status >= 500) {
-          errorTitle = "Server Error";
-          errorMessage = "Backend server error. Please try again later.";
-        } else {
-          errorMessage =
-            error.response.data?.message ||
-            `Backend error: ${error.response.status}`;
-        }
-      } else if (error.request) {
+  if (error.request) {
         // Network error
         errorTitle = "Network Error";
         errorMessage =
