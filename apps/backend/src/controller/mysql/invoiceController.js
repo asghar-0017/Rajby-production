@@ -174,6 +174,7 @@ export const createInvoice = async (req, res) => {
       status = "posted",
 
       fbr_invoice_number = null,
+      fbr_detail_no = null,
     } = req.body;
 
     // Debug: Log internal invoice number
@@ -704,6 +705,104 @@ export const createInvoice = async (req, res) => {
       }
     );
 
+    // Call Rajby FBR Reference API after successful invoice creation
+    console.log("🔍 Rajby API Debug - Checking conditions:", {
+      companyInvoiceRefNo: result.companyInvoiceRefNo,
+      fbr_invoice_number: fbr_invoice_number,
+      fbr_detail_no: fbr_detail_no,
+      allConditionsMet: !!(result.companyInvoiceRefNo && fbr_invoice_number && fbr_detail_no)
+    });
+    
+    if (result.companyInvoiceRefNo && fbr_invoice_number && fbr_detail_no) {
+      try {
+        console.log("✅ All conditions met, calling Rajby FBR Reference API...");
+        // Get invoice items for mapping
+        const invoiceItemsForRajby = await InvoiceItem.findAll({
+          where: { invoice_id: result.id },
+          attributes: ['id', 'InvoiceItemId', 'InvoiceDetId'],
+          order: [['id', 'ASC']],
+        });
+        
+        console.log("🔍 Rajby API Debug - Invoice items found:", invoiceItemsForRajby.length);
+
+        // Prepare invoiceDetails array
+        const invoiceDetails = [];
+        if (invoiceItemsForRajby.length > 0) {
+          // Handle fbr_detail_no: can be a string (single value) or array
+          const fbrDetailNoArray = Array.isArray(fbr_detail_no) 
+            ? fbr_detail_no 
+            : fbr_detail_no 
+              ? [fbr_detail_no] 
+              : [];
+
+          invoiceItemsForRajby.forEach((item, index) => {
+            // Try InvoiceDetId first, then InvoiceItemId, then id
+            const detInvNo = item.InvoiceDetId || item.InvoiceItemId || item.id?.toString();
+            // Use corresponding fbrDetailNo if array, otherwise use the first/only value
+            const fbrNo = fbrDetailNoArray[index] || fbrDetailNoArray[0] || null;
+            
+            console.log(`🔍 Rajby API Debug - Item ${index}:`, {
+              detInvNo,
+              fbrNo,
+              InvoiceDetId: item.InvoiceDetId,
+              InvoiceItemId: item.InvoiceItemId,
+              id: item.id
+            });
+            
+            if (detInvNo && fbrNo) {
+              invoiceDetails.push({
+                detInvNo: detInvNo,
+                fbrNo: fbrNo,
+              });
+            }
+          });
+          
+          console.log("🔍 Rajby API Debug - Prepared invoiceDetails:", invoiceDetails);
+        }
+
+        // Call Rajby FBR Reference API
+        const invoiceDateFormatted = result.invoiceDate 
+          ? (result.invoiceDate instanceof Date 
+              ? result.invoiceDate.toISOString().split('T')[0]
+              : new Date(result.invoiceDate).toISOString().split('T')[0])
+          : null;
+
+        if (!invoiceDateFormatted) {
+          console.warn("⚠️ Cannot call Rajby FBR Reference API: invoiceDate is missing");
+        } else if (invoiceDetails.length === 0) {
+          console.warn("⚠️ Cannot call Rajby FBR Reference API: No invoice details available (missing fbr_detail_no or invoice items)");
+        } else {
+          console.log("🚀 Calling Rajby FBR Reference API with:", {
+            fbrInvoiceNumber: fbr_invoice_number,
+            companyInvoiceRefNo: result.companyInvoiceRefNo,
+            invoiceDate: invoiceDateFormatted,
+            invoiceDetailsCount: invoiceDetails.length
+          });
+          
+          const { submitFBRReference } = await import("../../service/RajbyService.js");
+          const rajbyReferenceResult = await submitFBRReference({
+            fbrInvoiceNumber: fbr_invoice_number,
+            companyInvoiceRefNo: result.companyInvoiceRefNo,
+            invoiceDate: invoiceDateFormatted,
+            invoiceDetails: invoiceDetails,
+          });
+
+          console.log("✅ Rajby FBR Reference API called successfully:", rajbyReferenceResult);
+        }
+      } catch (rajbyError) {
+        // Log error but don't fail the invoice creation
+        console.error("❌ Error calling Rajby FBR Reference API:", rajbyError.message);
+        console.error("❌ Full error:", rajbyError);
+        // Continue with the rest of the flow even if Rajby API call fails
+      }
+    } else {
+      console.warn("⚠️ Rajby FBR Reference API not called - missing required fields:", {
+        hasCompanyInvoiceRefNo: !!result.companyInvoiceRefNo,
+        hasFbrInvoiceNumber: !!fbr_invoice_number,
+        hasFbrDetailNo: !!fbr_detail_no
+      });
+    }
+
     // Prepare response with all invoice data and items
     const responseData = {
       invoice_number: result.invoice_number,
@@ -1111,6 +1210,8 @@ export const saveInvoice = async (req, res) => {
             saleType: cleanValue(item.saleType),
 
             sroItemSerialNo: cleanValue(item.sroItemSerialNo),
+
+            billOfLadingUoM: cleanValue(item.billOfLadingUoM),
           };
 
           // Only include extraTax when it's a positive value (> 0)
@@ -1746,6 +1847,8 @@ export const saveAndValidateInvoice = async (req, res) => {
             saleType: cleanValue(item.saleType),
 
             sroItemSerialNo: cleanValue(item.sroItemSerialNo),
+
+            billOfLadingUoM: cleanValue(item.billOfLadingUoM),
           };
 
           // Only include extraTax when it's a positive value (> 0)

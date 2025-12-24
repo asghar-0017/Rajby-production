@@ -2772,6 +2772,7 @@ export default function CreateInvoice() {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        scenarioId: "SN001", // Hardcoded for testing
         items: itemsToSave.map(
           (
             {
@@ -2852,6 +2853,7 @@ export default function CreateInvoice() {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        scenarioId: "SN001", // Hardcoded for testing
         items: backendItems, // Use backend items that include all fields
       };
 
@@ -3060,6 +3062,7 @@ export default function CreateInvoice() {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        scenarioId: "SN001", // Hardcoded for testing
         items: itemsToSave.map(
           (
             {
@@ -3121,7 +3124,7 @@ export default function CreateInvoice() {
 
       // First, validate with FBR API
       const validateRes = await postData(
-        "di_data/v1/di/validateinvoicedata",
+        "di_data/v1/di/validateinvoicedata_sb",
         cleanedData,
         "sandbox"
       );
@@ -3163,6 +3166,7 @@ export default function CreateInvoice() {
           ...formData,
           invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
           transctypeId: formData.transctypeId,
+          scenarioId: "SN001", // Hardcoded for testing
           items: backendItems, // Use backend items that include all fields
         };
 
@@ -3530,98 +3534,113 @@ export default function CreateInvoice() {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        scenarioId: "SN001", // Hardcoded for testing
         items: cleanedItems,
       };
 
       // STEP 1: Hit FBR API First
-      // const fbrResponse = await postData(
-      //   "di_data/v1/di/postinvoicedata",
-      //   cleanedData,
-      //   "sandbox"
-      // );
+      const fbrResponse = await postData(
+        "di_data/v1/di/postinvoicedata_sb",
+        cleanedData,
+        "sandbox"
+      );
 
       // // Handle different FBR response structures
-      let fbrInvoiceNumber = "FBR_12345678";
-      // let isSuccess = false;
-      // let errorDetails = null;
+      let fbrInvoiceNumber = null;
+      let fbrDetailNo = null;
+      let isSuccess = false;
+      let errorDetails = null;
 
-      // if (fbrResponse.status === 200) {
-      //   // Check for validationResponse structure (old format)
-      //   if (fbrResponse.data && fbrResponse.data.validationResponse) {
-      //     const validation = fbrResponse.data.validationResponse;
-      //     isSuccess = validation.statusCode === "00";
-      //     fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
-      //     if (!isSuccess) {
-      //       errorDetails = validation;
-      //     }
-      //   }
-      //   // Check for direct response structure (new format)
-      //   else if (
-      //     fbrResponse.data &&
-      //     (fbrResponse.data.invoiceNumber || fbrResponse.data.success)
-      //   ) {
-      //     isSuccess = true;
-      //     fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
-      //   }
-      //   // Check for error response structure
-      //   else if (fbrResponse.data && fbrResponse.data.error) {
-      //     isSuccess = false;
-      //     errorDetails = fbrResponse.data;
-      //   }
-      //   // Check for empty response - this might be a successful submission
-      //   else if (!fbrResponse.data || fbrResponse.data === "") {
-      //     isSuccess = true;
-      //     fbrInvoiceNumber = `FBR_${Date.now()}`;
-      //   }
-      //   // If response is unexpected, treat as success if status is 200
-      //   else {
-      //     isSuccess = true;
-      //   }
-      // }
+      if (fbrResponse.status === 200) {
+        // Check for validationResponse structure (old format)
+        if (fbrResponse.data && fbrResponse.data.validationResponse) {
+          const validation = fbrResponse.data.validationResponse;
+          isSuccess = validation.statusCode === "00";
+          fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
+          // invoiceStatuses is an array, get invoiceNo from first element
+          if (validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses) && validation.invoiceStatuses.length > 0) {
+            fbrDetailNo = validation.invoiceStatuses[0].invoiceNo;
+          } else if (fbrResponse.data.invoiceStatuses && Array.isArray(fbrResponse.data.invoiceStatuses) && fbrResponse.data.invoiceStatuses.length > 0) {
+            fbrDetailNo = fbrResponse.data.invoiceStatuses[0].invoiceNo;
+          }
+          if (!isSuccess) {
+            errorDetails = validation;
+          }
+        }
+        // Check for direct response structure (new format)
+        else if (
+          fbrResponse.data &&
+          (fbrResponse.data.invoiceNumber || fbrResponse.data.success)
+        ) {
+          isSuccess = true;
+          fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
+          // invoiceStatuses is an array, get invoiceNo from first element
+          if (fbrResponse.data.invoiceStatuses && Array.isArray(fbrResponse.data.invoiceStatuses) && fbrResponse.data.invoiceStatuses.length > 0) {
+            fbrDetailNo = fbrResponse.data.invoiceStatuses[0].invoiceNo;
+          } else if (fbrResponse.data.validationResponse && fbrResponse.data.validationResponse.invoiceStatuses && Array.isArray(fbrResponse.data.validationResponse.invoiceStatuses) && fbrResponse.data.validationResponse.invoiceStatuses.length > 0) {
+            fbrDetailNo = fbrResponse.data.validationResponse.invoiceStatuses[0].invoiceNo;
+          }
+        }
+        // Check for error response structure
+        else if (fbrResponse.data && fbrResponse.data.error) {
+          isSuccess = false;
+          errorDetails = fbrResponse.data;
+        }
+        // Check for empty response - this might be a successful submission
+        else if (!fbrResponse.data || fbrResponse.data === "") {
+          isSuccess = true;
+          fbrInvoiceNumber = `FBR_${Date.now()}`;
+          fbrDetailNo = `FBR_${Date.now()}-1`;
+        }
+        // If response is unexpected, treat as success if status is 200
+        else {
+          isSuccess = true;
+        }
+      }
 
-      // if (!isSuccess) {
-      //   const details = errorDetails || {
-      //     raw: fbrResponse.data ?? null,
-      //     note: "Unexpected FBR response structure",
-      //     status: fbrResponse.status,
-      //   };
+      if (!isSuccess) {
+        const details = errorDetails || {
+          raw: fbrResponse.data ?? null,
+          note: "Unexpected FBR response structure",
+          status: fbrResponse.status,
+        };
 
-      //   const collectErrorMessages = (det) => {
-      //     const messages = [];
-      //     if (det && typeof det === "object") {
-      //       if (det.error) messages.push(det.error);
-      //       if (Array.isArray(det.invoiceStatuses)) {
-      //         det.invoiceStatuses.forEach((s) => {
-      //           if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
-      //         });
-      //       }
-      //       if (det.validationResponse) {
-      //         const v = det.validationResponse;
-      //         if (v?.error) messages.push(v.error);
-      //         if (Array.isArray(v?.invoiceStatuses)) {
-      //           v.invoiceStatuses.forEach((s) => {
-      //             if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
-      //           });
-      //         }
-      //       }
-      //     }
-      //     return messages.filter(Boolean);
-      //   };
+        const collectErrorMessages = (det) => {
+          const messages = [];
+          if (det && typeof det === "object") {
+            if (det.error) messages.push(det.error);
+            if (Array.isArray(det.invoiceStatuses)) {
+              det.invoiceStatuses.forEach((s) => {
+                if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
+              });
+            }
+            if (det.validationResponse) {
+              const v = det.validationResponse;
+              if (v?.error) messages.push(v.error);
+              if (Array.isArray(v?.invoiceStatuses)) {
+                v.invoiceStatuses.forEach((s) => {
+                  if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
+                });
+              }
+            }
+          }
+          return messages.filter(Boolean);
+        };
 
-      //   const errorMessages = collectErrorMessages(details);
-      //   const message = errorMessages.length
-      //     ? `FBR submission failed: ${errorMessages.join("; ")}`
-      //     : "FBR submission failed";
+        const errorMessages = collectErrorMessages(details);
+        const message = errorMessages.length
+          ? `FBR submission failed: ${errorMessages.join("; ")}`
+          : "FBR submission failed";
 
-      //   throw new Error(message);
-      // }
+        throw new Error(message);
+      }
 
       // // Ensure we have a valid FBR invoice number
-      // if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "") {
-      //   throw new Error(
-      //     "FBR submission failed: No invoice number received from FBR"
-      //   );
-      // }
+      if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "" || !fbrDetailNo || fbrDetailNo.trim() === "") {
+        throw new Error(
+          "FBR submission failed: No invoice number received from FBR"
+        );
+      }
 
       // STEP 2: Hit Your Backend API Second
       // Prepare data for backend with FBR invoice number
@@ -3653,8 +3672,10 @@ export default function CreateInvoice() {
         ...formData, // Use original form data to preserve all fields
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        scenarioId: "SN001", // Hardcoded for testing
         items: backendItems, // Use backend items that include all fields
         fbr_invoice_number: fbrInvoiceNumber,
+        fbr_detail_no: fbrDetailNo,
         status: "posted", // Set status as posted since it's been submitted to FBR
       };
 
@@ -3671,19 +3692,19 @@ export default function CreateInvoice() {
       }
 
       // STEP 3: Delete the saved invoice if it exists
-      if (editingId) {
-        try {
-          const deleteResponse = await api.delete(
-            `/tenant/${selectedTenant.tenant_id}/invoices/${editingId}`
-          );
+      // if (editingId) {
+      //   try {
+      //     const deleteResponse = await api.delete(
+      //       `/tenant/${selectedTenant.tenant_id}/invoices/${editingId}`
+      //     );
 
-          if (deleteResponse.status !== 200) {
-            // Failed to delete saved invoice, but submission was successful
-          }
-        } catch (deleteError) {
-          // Error deleting saved invoice, but main submission was successful
-        }
-      }
+      //     if (deleteResponse.status !== 200) {
+      //       // Failed to delete saved invoice, but submission was successful
+      //     }
+      //   } catch (deleteError) {
+      //     // Error deleting saved invoice, but main submission was successful
+      //   }
+      // }
 
       // STEP 4: Show Success Message
       Swal.fire({
