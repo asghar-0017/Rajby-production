@@ -106,7 +106,8 @@ export const TenantSelectionProvider = ({ children }) => {
 
         if (
           response.data.success &&
-          response.data.data.sandboxProductionToken
+          response.data.data &&
+          (response.data.data.sandboxProductionToken || response.data.data.sandboxTestToken)
         ) {
           const tenantWithTokens = response.data.data;
           // Keep tokens in memory only; persist sanitized tenant for id/name reuse
@@ -119,7 +120,7 @@ export const TenantSelectionProvider = ({ children }) => {
           } = tenantWithTokens;
           setSelectedTenant({
             ...sanitized,
-            sandboxProductionToken,
+            sandboxProductionToken: sandboxProductionToken || sandboxTestToken,
             sandboxTestToken,
           });
           localStorage.setItem(
@@ -136,7 +137,8 @@ export const TenantSelectionProvider = ({ children }) => {
           return true;
         } else {
           console.log(
-            `Server response indicates failure on attempt ${attempt}`
+            `Server response indicates failure on attempt ${attempt}`,
+            response.data
           );
         }
       } catch (error) {

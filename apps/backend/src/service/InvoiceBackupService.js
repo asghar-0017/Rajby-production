@@ -63,7 +63,6 @@ class InvoiceBackupService {
         user_id: user.id || user.userId || null,
         user_email: user.email || null,
         user_name: this.getUserDisplayName(user),
-        user_role: user.role || null,
         tenant_id: tenant.id || tenant.tenantId || null,
         tenant_name: tenant.name || tenant.sellerBusinessName || null,
         ip_address: request.ip || null,

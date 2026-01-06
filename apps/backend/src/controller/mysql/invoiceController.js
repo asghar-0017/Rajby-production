@@ -737,7 +737,7 @@ export const createInvoice = async (req, res) => {
 
           invoiceItemsForRajby.forEach((item, index) => {
             // Try InvoiceDetId first, then InvoiceItemId, then id
-            const detInvNo = item.InvoiceDetId || item.InvoiceItemId || item.id?.toString();
+            const detInvNo = item.InvoiceDetId
             // Use corresponding fbrDetailNo if array, otherwise use the first/only value
             const fbrNo = fbrDetailNoArray[index] || fbrDetailNoArray[0] || null;
             
@@ -5180,6 +5180,7 @@ export const submitSavedInvoice = async (req, res) => {
           attributes: ['InvoiceDetId'],
         });
 
+        console.log("invoiceItemsWithDetails", invoiceItemsWithDetails);
         // Prepare invoiceDetails array from invoice items
         const invoiceDetails = invoiceItemsWithDetails
           .filter(item => item.InvoiceDetId) // Only include items with InvoiceDetId
@@ -5204,6 +5205,7 @@ export const submitSavedInvoice = async (req, res) => {
             invoiceDate: invoiceDateFormatted,
             invoiceDetails: invoiceDetails,
           });
+          console.log("rajbyReferenceResult", rajbyReferenceResult);
 
         }
 

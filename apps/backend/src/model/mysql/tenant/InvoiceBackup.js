@@ -92,11 +92,6 @@ export const createInvoiceBackupModel = (sequelize) => {
         allowNull: true,
         comment: 'Full name of user who performed the operation',
       },
-      user_role: {
-        type: DataTypes.STRING(50),
-        allowNull: true,
-        comment: 'Role of user who performed the operation',
-      },
       tenant_id: {
         type: DataTypes.INTEGER,
         allowNull: true,

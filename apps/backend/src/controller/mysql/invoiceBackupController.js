@@ -301,7 +301,6 @@ export const exportBackups = async (req, res) => {
         'fbr_invoice_number',
         'user_name',
         'user_email',
-        'user_role',
         'created_at'
       ]
     });
@@ -319,7 +318,6 @@ export const exportBackups = async (req, res) => {
       'FBR Invoice Number',
       'User Name',
       'User Email',
-      'User Role',
       'Created At'
     ];
 
@@ -335,7 +333,6 @@ export const exportBackups = async (req, res) => {
       backup.fbr_invoice_number,
       backup.user_name,
       backup.user_email,
-      backup.user_role,
       backup.created_at
     ]);
 
