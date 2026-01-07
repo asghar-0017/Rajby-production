@@ -175,7 +175,75 @@ export const createInvoice = async (req, res) => {
 
       fbr_invoice_number = null,
       fbr_detail_no = null,
+      validationResponse = null,
     } = req.body;
+
+    // Extract fbr_detail_no from validationResponse.invoiceStatuses[].invoiceNo
+    // Same logic as single invoice submission - extract from FBR response
+    // Can be single value (string) or multiple values (array)
+    console.log("🔍 Debug - Extracting fbr_detail_no:", {
+      hasFbrDetailNo: !!fbr_detail_no,
+      fbrDetailNo: fbr_detail_no,
+      hasValidationResponse: !!validationResponse,
+      validationResponseKeys: validationResponse ? Object.keys(validationResponse) : [],
+    });
+    
+    if (!fbr_detail_no && validationResponse) {
+      const invoiceStatuses = validationResponse?.invoiceStatuses || [];
+      console.log("🔍 Debug - validationResponse invoiceStatuses:", {
+        hasInvoiceStatuses: Array.isArray(invoiceStatuses),
+        length: invoiceStatuses.length,
+        firstItem: invoiceStatuses[0],
+      });
+      
+      if (Array.isArray(invoiceStatuses) && invoiceStatuses.length > 0) {
+        // Extract invoiceNo values from invoiceStatuses (same as single invoice)
+        // If single item, return string; if multiple, return array
+        const invoiceNos = invoiceStatuses
+          .map(status => status?.invoiceNo)
+          .filter(invoiceNo => invoiceNo); // Remove null/undefined/empty values
+        
+        if (invoiceNos.length === 1) {
+          fbr_detail_no = invoiceNos[0]; // Single value as string
+        } else if (invoiceNos.length > 1) {
+          fbr_detail_no = invoiceNos; // Multiple values as array
+        }
+        
+        console.log("🔍 Debug - Extracted fbr_detail_no:", {
+          fbrDetailNo: fbr_detail_no,
+          isArray: Array.isArray(fbr_detail_no),
+          length: Array.isArray(fbr_detail_no) ? fbr_detail_no.length : 1,
+        });
+      }
+    }
+    
+    // Also check if validationResponse is nested in req.body (alternative structure)
+    if (!fbr_detail_no && req.body.validationResponse) {
+      const validation = req.body.validationResponse;
+      const invoiceStatuses = validation?.invoiceStatuses || [];
+      console.log("🔍 Debug - Trying alternative path: req.body.validationResponse:", {
+        hasInvoiceStatuses: Array.isArray(invoiceStatuses),
+        length: invoiceStatuses.length,
+        firstItem: invoiceStatuses[0],
+      });
+      
+      if (Array.isArray(invoiceStatuses) && invoiceStatuses.length > 0) {
+        const invoiceNos = invoiceStatuses
+          .map(status => status?.invoiceNo)
+          .filter(invoiceNo => invoiceNo);
+        
+        if (invoiceNos.length === 1) {
+          fbr_detail_no = invoiceNos[0];
+        } else if (invoiceNos.length > 1) {
+          fbr_detail_no = invoiceNos;
+        }
+        
+        console.log("🔍 Debug - Extracted fbr_detail_no from alternative path:", {
+          fbrDetailNo: fbr_detail_no,
+          isArray: Array.isArray(fbr_detail_no),
+        });
+      }
+    }
 
     // Debug: Log internal invoice number
     console.log("🔍 Backend Debug: Internal Invoice No:", {
@@ -212,14 +280,6 @@ export const createInvoice = async (req, res) => {
     if (finalInvoiceNumber) {
       existingInvoice = await Invoice.findOne({
         where: { invoice_number: finalInvoiceNumber },
-      });
-    }
-
-    if (existingInvoice) {
-      return res.status(409).json({
-        success: false,
-
-        message: "Invoice with this number already exists",
       });
     }
 
@@ -466,15 +526,8 @@ export const createInvoice = async (req, res) => {
             return hsCode.substring(0, 50);
           };
 
-          // Normalize InvoiceDetId coming from various client keys (legacy or with typos)
-          const resolveInvoiceDetId = (item) =>
-            cleanValue(
-              item?.InvoiceDetId ??
-                item?.lineItemInvoiceNumber ??
-                item?.["InvoiceDetId "] ?? // common payload typo with trailing space
-                item?.invoiceDetId ??
-                item?.invoice_det_id
-            );
+         
+      
 
           const mappedItem = {
             invoice_id: invoice.id,
@@ -484,7 +537,7 @@ export const createInvoice = async (req, res) => {
                 ? null
                 : cleanValue(item.InvoiceItemId),
 
-            InvoiceDetId: resolveInvoiceDetId(item),
+            InvoiceDetId: cleanValue(item.InvoiceDetId),
 
             hsCode: cleanHsCode(item.hsCode),
 
@@ -931,6 +984,7 @@ export const saveInvoice = async (req, res) => {
 
     const result = await req.tenantDb.transaction(async (t) => {
       let invoice = null;
+      let existingItems = []; // Initialize to preserve InvoiceDetId
 
       if (id) {
         invoice = await Invoice.findByPk(id, { transaction: t });
@@ -1015,6 +1069,17 @@ export const saveInvoice = async (req, res) => {
           { transaction: t }
         );
 
+        // Fetch existing items to preserve InvoiceDetId before destroying
+        existingItems = await InvoiceItem.findAll({
+          where: { invoice_id: invoice.id },
+          attributes: ['id', 'InvoiceDetId', 'InvoiceItemId'],
+          order: [['id', 'ASC']],
+          transaction: t,
+        });
+
+        console.log(`[saveInvoice] Fetched ${existingItems.length} existing items for invoice ${invoice.id}:`, 
+          existingItems.map(ei => ({ id: ei.id, InvoiceDetId: ei.InvoiceDetId, InvoiceItemId: ei.InvoiceItemId })));
+
         // Replace items
 
         await InvoiceItem.destroy({
@@ -1097,7 +1162,7 @@ export const saveInvoice = async (req, res) => {
       // Create invoice items if provided
 
       if (items && Array.isArray(items) && items.length > 0) {
-        const invoiceItems = items.map((item) => {
+        const invoiceItems = items.map((item, index) => {
           const cleanValue = (value) => {
             if (
               value === "" ||
@@ -1149,15 +1214,39 @@ export const saveInvoice = async (req, res) => {
                 item?.invoice_det_id
             );
 
+          // Preserve InvoiceDetId from existing items if updating
+          let preservedInvoiceDetId = null;
+          let preservedInvoiceItemId = null;
+          
+          if (id && existingItems && existingItems.length > 0) {
+            // Try to match by database id first
+            const itemDbId = item.id && typeof item.id === 'number' && item.id < 1000000 ? item.id : null;
+            if (itemDbId) {
+              const existingItem = existingItems.find(ei => ei.id === itemDbId);
+              if (existingItem) {
+                preservedInvoiceDetId = existingItem.InvoiceDetId;
+                preservedInvoiceItemId = existingItem.InvoiceItemId;
+              }
+            }
+            
+            // If no match by id, try to match by index (position-based matching)
+            if (!preservedInvoiceDetId && index < existingItems.length) {
+              preservedInvoiceDetId = existingItems[index].InvoiceDetId;
+              preservedInvoiceItemId = existingItems[index].InvoiceItemId;
+            }
+          }
+
           const mappedItem = {
             invoice_id: invoice.id,
 
             InvoiceItemId:
-              item.InvoiceItemId === undefined
-                ? null
-                : cleanValue(item.InvoiceItemId),
+              item.InvoiceItemId !== undefined
+                ? cleanValue(item.InvoiceItemId)
+                : preservedInvoiceItemId !== null
+                  ? preservedInvoiceItemId
+                  : null,
 
-            InvoiceDetId: resolveInvoiceDetId(item),
+            InvoiceDetId: resolveInvoiceDetId(item) || preservedInvoiceDetId,
 
             hsCode: cleanHsCode(item.hsCode),
 
@@ -1591,6 +1680,7 @@ export const saveAndValidateInvoice = async (req, res) => {
 
     const result = await req.tenantDb.transaction(async (t) => {
       let invoice = null;
+      let existingItems = []; // Initialize to preserve InvoiceDetId
 
       if (id) {
         invoice = await Invoice.findByPk(id, { transaction: t });
@@ -1681,6 +1771,17 @@ export const saveAndValidateInvoice = async (req, res) => {
           { transaction: t }
         );
 
+        // Fetch existing items to preserve InvoiceDetId before destroying
+        existingItems = await InvoiceItem.findAll({
+          where: { invoice_id: invoice.id },
+          attributes: ['id', 'InvoiceDetId', 'InvoiceItemId'],
+          order: [['id', 'ASC']],
+          transaction: t,
+        });
+
+        console.log(`[saveAndValidateInvoice] Fetched ${existingItems.length} existing items for invoice ${invoice.id}:`, 
+          existingItems.map(ei => ({ id: ei.id, InvoiceDetId: ei.InvoiceDetId, InvoiceItemId: ei.InvoiceItemId })));
+
         await InvoiceItem.destroy({
           where: { invoice_id: invoice.id },
 
@@ -1751,7 +1852,7 @@ export const saveAndValidateInvoice = async (req, res) => {
       }
 
       if (items && Array.isArray(items) && items.length > 0) {
-        const invoiceItems = items.map((item) => {
+        const invoiceItems = items.map((item, index) => {
           const cleanValue = (value) => {
             if (
               value === "" ||
@@ -1793,8 +1894,59 @@ export const saveAndValidateInvoice = async (req, res) => {
             return hsCode.substring(0, 50);
           };
 
+          // Normalize InvoiceDetId coming from various client keys (legacy or with typos)
+          const resolveInvoiceDetId = (item) =>
+            cleanValue(
+              item?.InvoiceDetId ??
+                item?.lineItemInvoiceNumber ??
+                item?.["InvoiceDetId "] ?? // common payload typo with trailing space
+                item?.invoiceDetId ??
+                item?.invoice_det_id
+            );
+
+          // Preserve InvoiceDetId from existing items if updating
+          let preservedInvoiceDetId = null;
+          let preservedInvoiceItemId = null;
+          
+          if (id && existingItems && existingItems.length > 0) {
+            // Try to match by database id first
+            const itemDbId = item.id && typeof item.id === 'number' && item.id < 1000000 ? item.id : null;
+            if (itemDbId) {
+              const existingItem = existingItems.find(ei => ei.id === itemDbId);
+              if (existingItem) {
+                preservedInvoiceDetId = existingItem.InvoiceDetId;
+                preservedInvoiceItemId = existingItem.InvoiceItemId;
+                console.log(`[saveAndValidateInvoice] ✅ Matched item by id ${itemDbId}: InvoiceDetId=${preservedInvoiceDetId}`);
+              } else {
+                console.log(`[saveAndValidateInvoice] ⚠️ No match found for item id ${itemDbId}. Existing items:`, existingItems.map(ei => ({ id: ei.id, InvoiceDetId: ei.InvoiceDetId })));
+              }
+            } else {
+              console.log(`[saveAndValidateInvoice] ⚠️ Item id ${item.id} is not a valid database id (type: ${typeof item.id})`);
+            }
+            
+            // If no match by id, try to match by index (position-based matching)
+            if (!preservedInvoiceDetId && index < existingItems.length) {
+              preservedInvoiceDetId = existingItems[index].InvoiceDetId;
+              preservedInvoiceItemId = existingItems[index].InvoiceItemId;
+              console.log(`[saveAndValidateInvoice] ✅ Matched item by index ${index}: InvoiceDetId=${preservedInvoiceDetId}`);
+            } else if (!preservedInvoiceDetId) {
+              console.log(`[saveAndValidateInvoice] ⚠️ No match by index ${index} (existingItems.length=${existingItems.length})`);
+            }
+          } else {
+            console.log(`[saveAndValidateInvoice] ⚠️ Cannot preserve InvoiceDetId: id=${id}, existingItems=${existingItems ? existingItems.length : 'undefined'}`);
+          }
+
           const mappedItem = {
             invoice_id: invoice.id,
+
+            InvoiceItemId:
+              item.InvoiceItemId !== undefined
+                ? cleanValue(item.InvoiceItemId)
+                : preservedInvoiceItemId !== null
+                  ? preservedInvoiceItemId
+                  : null,
+
+            InvoiceDetId: cleanValue(item.InvoiceDetId) || preservedInvoiceDetId,
 
             hsCode: cleanHsCode(item.hsCode),
 
@@ -4261,14 +4413,30 @@ export const deleteInvoice = async (req, res) => {
     const skipRajbyDelete = req.body?.skipRajbyDelete === true;
     const rajbyDeleteResult = req.body?.rajbyDeleteResult;
     
+    // Check if invoice was created/submitted through bulk upload
+    // Bulk uploaded invoices have invoice numbers starting with "DRAFT_" or "SAVED_"
+    // We skip Rajby API delete for all bulk uploaded invoices (regardless of status)
+    // Similar to createInvoiceForm.jsx which doesn't interact with Rajby API for bulk invoices
+    const invoiceNumber = (invoice.invoice_number || '').toString().trim().toUpperCase();
+    const isBulkUploadedInvoice = invoiceNumber.startsWith('DRAFT_') || invoiceNumber.startsWith('SAVED_');
+    
     let rajbyApiResult = null;
     
     // Check if companyInvoiceRefNo exists and is not empty
     const companyInvoiceRefNo = invoice.companyInvoiceRefNo?.trim();
     
     console.log(
-      `[Invoice Delete] Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo || 'NULL/EMPTY'}, Invoice Number: ${invoice.invoice_number}, Skip Rajby Delete: ${skipRajbyDelete}`
+      `[Invoice Delete] Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo || 'NULL/EMPTY'}, Invoice Number: ${invoice.invoice_number}, Status: ${invoice.status}, Skip Rajby Delete: ${skipRajbyDelete}, Is Bulk Uploaded: ${isBulkUploadedInvoice}`
     );
+    
+    // Skip Rajby API delete for invoices created/submitted through bulk upload
+    // These invoices never interact with Rajby API, similar to createInvoiceForm.jsx flow
+    if (isBulkUploadedInvoice) {
+      console.log(
+        `[Invoice Delete] Skipping Rajby API delete - Invoice was created/submitted through bulk upload. Invoice ID: ${invoice.id}, Invoice Number: ${invoice.invoice_number}, Status: ${invoice.status}`
+      );
+      // Set flag to skip Rajby API call - proceed with local deletion only
+    }
     
     // If Rajby deletion was already done from frontend, use that result
     if (skipRajbyDelete && rajbyDeleteResult) {
@@ -4289,8 +4457,8 @@ export const deleteInvoice = async (req, res) => {
           rajbyApiResult: rajbyApiResult,
         });
       }
-    } else if (!skipRajbyDelete) {
-      // Only perform Rajby deletion if not already done from frontend
+    } else if (!skipRajbyDelete && !isBulkUploadedInvoice) {
+      // Only perform Rajby deletion if not already done from frontend and not a bulk uploaded invoice
       if (!companyInvoiceRefNo || companyInvoiceRefNo.length === 0) {
         // If companyInvoiceRefNo is missing, don't delete locally
         console.error(
@@ -4362,11 +4530,17 @@ export const deleteInvoice = async (req, res) => {
           },
         });
       }
-    } else {
-      // skipRajbyDelete is true but no result provided - this shouldn't happen, but proceed with local deletion
-      console.warn(
-        `[Invoice Delete] skipRajbyDelete is true but no rajbyDeleteResult provided. Proceeding with local deletion only.`
-      );
+    } else if (skipRajbyDelete || isBulkUploadedInvoice) {
+      // skipRajbyDelete is true or invoice is bulk uploaded - proceed with local deletion only
+      if (isBulkUploadedInvoice) {
+        console.log(
+          `[Invoice Delete] Skipping Rajby API delete for bulk uploaded invoice. Proceeding with local deletion only.`
+        );
+      } else {
+        console.warn(
+          `[Invoice Delete] skipRajbyDelete is true but no rajbyDeleteResult provided. Proceeding with local deletion only.`
+        );
+      }
     }
 
     // Store old values for audit before soft deletion
@@ -4857,7 +5031,7 @@ export const submitSavedInvoice = async (req, res) => {
     // Submit directly to FBR (skipping validation)
 
     const postRes = await postData(
-      "di_data/v1/di/postinvoicedata",
+      "di_data/v1/di/postinvoicedata_sb",
 
       fbrData,
 
@@ -4905,6 +5079,7 @@ export const submitSavedInvoice = async (req, res) => {
     let isSuccess = false;
 
     let fbrInvoiceNumber = null;
+    let fbrDetailNo = null;
 
     let errorDetails = null;
 
@@ -4917,6 +5092,24 @@ export const submitSavedInvoice = async (req, res) => {
         isSuccess = validation.statusCode === "00";
 
         fbrInvoiceNumber = postRes.data.invoiceNumber;
+        
+        // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as frontend)
+        console.log("🔍 Debug - Extracting fbrDetailNo from validationResponse:", {
+          hasValidationInvoiceStatuses: !!(validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses)),
+          validationInvoiceStatusesLength: validation.invoiceStatuses?.length || 0,
+          hasDataInvoiceStatuses: !!(postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses)),
+          dataInvoiceStatusesLength: postRes.data.invoiceStatuses?.length || 0,
+        });
+        
+        if (validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses) && validation.invoiceStatuses.length > 0) {
+          fbrDetailNo = validation.invoiceStatuses[0].invoiceNo;
+          console.log("🔍 Debug - Extracted fbrDetailNo from validation.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+        } else if (postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses) && postRes.data.invoiceStatuses.length > 0) {
+          fbrDetailNo = postRes.data.invoiceStatuses[0].invoiceNo;
+          console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+        } else {
+          console.warn("⚠️ Debug - Could not extract fbrDetailNo from response structure");
+        }
 
         console.log("FBR Response - validationResponse format:", {
           statusCode: validation.statusCode,
@@ -4924,6 +5117,7 @@ export const submitSavedInvoice = async (req, res) => {
           isSuccess,
 
           fbrInvoiceNumber,
+          fbrDetailNo,
         });
 
         if (!isSuccess) {
@@ -4939,11 +5133,31 @@ export const submitSavedInvoice = async (req, res) => {
         isSuccess = true;
 
         fbrInvoiceNumber = postRes.data.invoiceNumber;
+        
+        // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as frontend)
+        console.log("🔍 Debug - Extracting fbrDetailNo from direct format:", {
+          hasDataInvoiceStatuses: !!(postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses)),
+          dataInvoiceStatusesLength: postRes.data.invoiceStatuses?.length || 0,
+          hasValidationResponse: !!postRes.data.validationResponse,
+          hasValidationInvoiceStatuses: !!(postRes.data.validationResponse?.invoiceStatuses && Array.isArray(postRes.data.validationResponse.invoiceStatuses)),
+          validationInvoiceStatusesLength: postRes.data.validationResponse?.invoiceStatuses?.length || 0,
+        });
+        
+        if (postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses) && postRes.data.invoiceStatuses.length > 0) {
+          fbrDetailNo = postRes.data.invoiceStatuses[0].invoiceNo;
+          console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+        } else if (postRes.data.validationResponse && postRes.data.validationResponse.invoiceStatuses && Array.isArray(postRes.data.validationResponse.invoiceStatuses) && postRes.data.validationResponse.invoiceStatuses.length > 0) {
+          fbrDetailNo = postRes.data.validationResponse.invoiceStatuses[0].invoiceNo;
+          console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.validationResponse.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+        } else {
+          console.warn("⚠️ Debug - Could not extract fbrDetailNo from direct format response structure");
+        }
 
         console.log("FBR Response - direct format:", {
           isSuccess,
 
           fbrInvoiceNumber,
+          fbrDetailNo,
 
           success: postRes.data.success,
         });
@@ -5172,22 +5386,60 @@ export const submitSavedInvoice = async (req, res) => {
     });
 
     // Call Rajby FBR Reference API after successful FBR submission
-    if (updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber) {
+    console.log("🔍 Rajby API Debug - Checking conditions for submitSavedInvoice:", {
+      companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
+      fbrInvoiceNumber: fbrInvoiceNumber,
+      fbrDetailNo: fbrDetailNo,
+      hasCompanyInvoiceRefNo: !!updatedInvoice.companyInvoiceRefNo,
+      hasFbrInvoiceNumber: !!fbrInvoiceNumber,
+      hasFbrDetailNo: !!fbrDetailNo,
+      allConditionsMet: !!(updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber && fbrDetailNo)
+    });
+    
+    if (updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber && fbrDetailNo) {
       try {
         // Reload invoice items to get updated InvoiceDetId values
         const invoiceItemsWithDetails = await InvoiceItem.findAll({
           where: { invoice_id: updatedInvoice.id },
-          attributes: ['InvoiceDetId'],
+          attributes: ['id', 'InvoiceDetId'],
+          order: [['id', 'ASC']],
         });
 
         console.log("invoiceItemsWithDetails", invoiceItemsWithDetails);
-        // Prepare invoiceDetails array from invoice items
-        const invoiceDetails = invoiceItemsWithDetails
-          .filter(item => item.InvoiceDetId) // Only include items with InvoiceDetId
-          .map(item => ({
-            detInvNo: item.InvoiceDetId,
-            fbrNo: item.InvoiceDetId, // Using InvoiceDetId as fbrNo (can be adjusted based on actual requirement)
-          }));
+        
+        // Get invoiceStatuses from FBR response to map fbrDetailNo to items
+        const invoiceStatuses = postRes.data?.validationResponse?.invoiceStatuses || postRes.data?.invoiceStatuses || [];
+        
+        // Handle fbrDetailNo: can be a string (single value) or array
+        const fbrDetailNoArray = Array.isArray(fbrDetailNo) 
+          ? fbrDetailNo 
+          : fbrDetailNo 
+            ? [fbrDetailNo] 
+            : [];
+        
+        // Prepare invoiceDetails array from invoice items (same logic as createInvoice)
+        const invoiceDetails = [];
+        invoiceItemsWithDetails.forEach((item, index) => {
+          const detInvNo = item.InvoiceDetId;
+          // Use corresponding fbrDetailNo from invoiceStatuses if available, otherwise use array index
+          const fbrNo = invoiceStatuses[index]?.invoiceNo || fbrDetailNoArray[index] || fbrDetailNoArray[0] || null;
+          
+          console.log(`🔍 Rajby API Debug - Item ${index}:`, {
+            detInvNo,
+            fbrNo,
+            InvoiceDetId: item.InvoiceDetId,
+            id: item.id
+          });
+          
+          if (detInvNo && fbrNo) {
+            invoiceDetails.push({
+              detInvNo: detInvNo,
+              fbrNo: fbrNo, // Use fbrDetailNo from FBR response (invoiceNo from invoiceStatuses)
+            });
+          }
+        });
+        
+        console.log("🔍 Rajby API Debug - Prepared invoiceDetails:", invoiceDetails);
 
         // Call Rajby FBR Reference API
         const invoiceDateFormatted = updatedInvoice.invoiceDate 
@@ -5198,23 +5450,36 @@ export const submitSavedInvoice = async (req, res) => {
 
         if (!invoiceDateFormatted) {
           console.warn("⚠️ Cannot call Rajby FBR Reference API: invoiceDate is missing");
+        } else if (invoiceDetails.length === 0) {
+          console.warn("⚠️ Cannot call Rajby FBR Reference API: No invoice details available (missing fbr_detail_no or invoice items)");
         } else {
+          console.log("🚀 Calling Rajby FBR Reference API with:", {
+            fbrInvoiceNumber: fbrInvoiceNumber,
+            companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
+            invoiceDate: invoiceDateFormatted,
+            invoiceDetailsCount: invoiceDetails.length
+          });
+          
           const rajbyReferenceResult = await submitFBRReference({
             fbrInvoiceNumber: fbrInvoiceNumber,
             companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
             invoiceDate: invoiceDateFormatted,
             invoiceDetails: invoiceDetails,
           });
-          console.log("rajbyReferenceResult", rajbyReferenceResult);
-
+          console.log("✅ Rajby FBR Reference API called successfully:", rajbyReferenceResult);
         }
-
-        console.log("Rajby FBR Reference API called successfully:", rajbyReferenceResult);
       } catch (rajbyError) {
         // Log error but don't fail the invoice submission
         console.error("❌ Error calling Rajby FBR Reference API:", rajbyError.message);
+        console.error("❌ Full error:", rajbyError);
         // Continue with the rest of the flow even if Rajby API call fails
       }
+    } else {
+      console.warn("⚠️ Rajby FBR Reference API not called - missing required fields:", {
+        hasCompanyInvoiceRefNo: !!updatedInvoice.companyInvoiceRefNo,
+        hasFbrInvoiceNumber: !!fbrInvoiceNumber,
+        hasFbrDetailNo: !!fbrDetailNo
+      });
     }
 
     // Log audit event for invoice submission to FBR

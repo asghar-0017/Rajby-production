@@ -882,32 +882,172 @@ export default function BasicTable() {
           if (response.data.success) {
             const invoiceData = response.data.data;
 
-            // Save and validate the invoice
+            // Clean data for FBR validation (similar to createInvoiceForm.jsx)
+            const cleanedItems = invoiceData.items.map(
+              ({
+                isSROScheduleEnabled,
+                isSROItemEnabled,
+                retailPrice,
+                isValueSalesManual,
+                isTotalValuesManual,
+                isSalesTaxManual,
+                isSalesTaxWithheldManual,
+                isFurtherTaxManual,
+                isFedPayableManual,
+                advanceIncomeTax, // Remove from FBR API payload
+                dcDocId, // Remove from FBR API payload
+                dcDocDate, // Remove from FBR API payload
+                cartages, // Remove from FBR API payload
+                others, // Remove from FBR API payload
+                ...rest
+              }) => {
+                // Special handling for uoM based on rate content
+                let uoMValue = rest.uoM?.trim() || null;
+                if (rest.rate && rest.rate.includes("/bill")) {
+                  uoMValue = "Bill of lading";
+                }
+                if (rest.rate && rest.rate.includes("/SqY")) {
+                  uoMValue = "SqY";
+                }
+
+                const baseItem = {
+                  ...rest,
+                  fixedNotifiedValueOrRetailPrice: Number(
+                    Number(retailPrice || 0).toFixed(2)
+                  ),
+                  quantity:
+                    rest.quantity === "" ? 0 : parseFloat(rest.quantity || 0),
+                  unitPrice: Number(Number(rest.unitPrice || 0).toFixed(2)),
+                  valueSalesExcludingST: Number(
+                    Number(rest.valueSalesExcludingST || 0).toFixed(2)
+                  ),
+                  salesTaxApplicable:
+                    Math.round(Number(rest.salesTaxApplicable || 0) * 100) /
+                    100,
+                  salesTaxWithheldAtSource: Number(
+                    Number(rest.salesTaxWithheldAtSource || 0).toFixed(2)
+                  ),
+                  totalValues: Number(Number(rest.totalValues || 0).toFixed(2)),
+                  sroScheduleNo: rest.sroScheduleNo?.trim() || null,
+                  sroItemSerialNo: rest.sroItemSerialNo?.trim() || null,
+                  uoM: uoMValue,
+                  productDescription: rest.productDescription?.trim() || null,
+                  saleType:
+                    rest.saleType?.trim() || "Goods at standard rate (default)",
+                  furtherTax: Number(Number(rest.furtherTax || 0).toFixed(2)),
+                  fedPayable: Number(Number(rest.fedPayable || 0).toFixed(2)),
+                  discount: Number(Number(rest.discount || 0).toFixed(2)),
+                };
+
+                // Only include extraTax if saleType is NOT "Goods at Reduced Rate"
+                if (rest.saleType?.trim() !== "Goods at Reduced Rate") {
+                  baseItem.extraTax = Number(
+                    Number(rest.extraTax || 0).toFixed(2)
+                  );
+                } else {
+                  // For "Goods at Reduced Rate", send empty string instead of null
+                  baseItem.extraTax = "";
+                }
+
+                return baseItem;
+              }
+            );
+
+            const cleanedData = {
+              ...invoiceData,
+              invoiceDate: dayjs(invoiceData.invoiceDate).format("YYYY-MM-DD"),
+              transctypeId: invoiceData.transctypeId,
+              scenarioId: invoiceData.scenarioId || "SN001", // Default scenario ID
+              items: cleanedItems,
+            };
+
+            // STEP 1: First, validate with FBR API
+            const validateRes = await postData(
+              "di_data/v1/di/validateinvoicedata_sb",
+              cleanedData,
+              "sandbox"
+            );
+
+            // Handle different FBR response structures
+            const hasValidationResponse =
+              validateRes.data && validateRes.data.validationResponse;
+            const isValidationSuccess =
+              validateRes.status === 200 &&
+              (hasValidationResponse
+                ? validateRes.data.validationResponse.statusCode === "00"
+                : true);
+
+            if (!isValidationSuccess) {
+              // If validation fails, show detailed FBR validation error
+              let errorMessage = "Invoice validation with FBR failed.";
+              let errorDetails = [];
+
+              // Handle different error response structures
+              if (hasValidationResponse) {
+                const validation = validateRes.data.validationResponse;
+                if (validation.error) {
+                  errorMessage = validation.error;
+                }
+                // Check for item-specific errors
+                if (
+                  validation.invoiceStatuses &&
+                  Array.isArray(validation.invoiceStatuses)
+                ) {
+                  validation.invoiceStatuses.forEach((status, index) => {
+                    if (status.error) {
+                      errorDetails.push(`Item ${index + 1}: ${status.error}`);
+                    }
+                  });
+                }
+              } else if (validateRes.data.error) {
+                errorMessage = validateRes.data.error;
+              } else if (validateRes.data.message) {
+                errorMessage = validateRes.data.message;
+              }
+
+              // Check for additional error details in the response
+              if (
+                validateRes.data.invoiceStatuses &&
+                Array.isArray(validateRes.data.invoiceStatuses)
+              ) {
+                validateRes.data.invoiceStatuses.forEach((status, index) => {
+                  if (status.error) {
+                    errorDetails.push(`Item ${index + 1}: ${status.error}`);
+                  }
+                });
+              }
+
+              // Combine error message with details
+              const fullErrorMessage =
+                errorDetails.length > 0
+                  ? `${errorMessage}\n\nDetails:\n${errorDetails.join("\n")}`
+                  : errorMessage;
+
+              results.push({
+                invoiceNumber: invoice.invoiceNumber,
+                status: "error",
+                message: `FBR Validation Failed: ${fullErrorMessage}`,
+              });
+              continue; // Skip to next invoice
+            }
+
+            // STEP 2: If validation passes, save the invoice with status 'saved'
             const saveResponse = await api.post(
               `/tenant/${selectedTenant.tenant_id}/invoices/save-validate`,
               invoiceData
             );
 
             if (saveResponse.status === 201) {
-              const fbrValidation = saveResponse.data.data.fbrValidation;
-              let message = `Invoice ${invoice.invoiceNumber} saved successfully`;
-              
-              if (fbrValidation && fbrValidation.success) {
-                message += " and validated with FBR";
-              } else if (fbrValidation && !fbrValidation.success) {
-                message += ` (FBR validation skipped: ${fbrValidation.reason})`;
-              }
-              
               results.push({
                 invoiceNumber: invoice.invoiceNumber,
                 status: "success",
-                message: message,
+                message: `Invoice ${invoice.invoiceNumber} validated with FBR and saved successfully`,
               });
             } else {
               results.push({
                 invoiceNumber: invoice.invoiceNumber,
                 status: "error",
-                message: "Failed to save and validate invoice",
+                message: "Failed to save invoice after FBR validation",
               });
             }
           } else {
@@ -922,11 +1062,48 @@ export default function BasicTable() {
             `Error processing invoice ${invoice.invoiceNumber}:`,
             error
           );
+
+          // Enhanced error handling for FBR validation errors
+          let errorMessage = "Error processing invoice";
+          let errorDetails = [];
+
+          const errorResponse = error.response?.data;
+          if (errorResponse) {
+            // Handle FBR API validation errors
+            const fbrError =
+              errorResponse?.validationResponse?.error ||
+              errorResponse?.error ||
+              errorResponse?.message;
+
+            if (fbrError) {
+              errorMessage = `FBR Validation Error: ${fbrError}`;
+
+              // Check for item-specific errors in validation response
+              if (errorResponse.validationResponse?.invoiceStatuses) {
+                errorResponse.validationResponse.invoiceStatuses.forEach(
+                  (status, index) => {
+                    if (status.error) {
+                      errorDetails.push(`Item ${index + 1}: ${status.error}`);
+                    }
+                  }
+                );
+              }
+            } else if (errorResponse.message) {
+              errorMessage = errorResponse.message;
+            }
+          } else if (error.message) {
+            errorMessage = error.message;
+          }
+
+          const fullErrorMessage =
+            errorDetails.length > 0
+              ? `${errorMessage}\n\nDetails:\n${errorDetails.join("\n")}`
+              : errorMessage;
+
           results.push({
             invoiceNumber: invoice.invoiceNumber,
             status: "error",
-            message:
-              error.response?.data?.message || "Error processing invoice",
+            message: fullErrorMessage,
           });
         }
       }
@@ -936,26 +1113,10 @@ export default function BasicTable() {
       const failed = results.filter((r) => r.status === "error");
 
       if (failed.length === 0) {
-        const fbrValidatedCount = successful.filter(r => r.message.includes("validated with FBR")).length;
-        const fbrSkippedCount = successful.filter(r => r.message.includes("FBR validation skipped")).length;
-        
-        let title = "All Invoices Saved Successfully!";
-        let text = `${successful.length} invoices have been saved`;
-        
-        if (fbrValidatedCount > 0 && fbrSkippedCount === 0) {
-          title = "All Invoices Saved and Validated with FBR!";
-          text += " and validated with FBR";
-        } else if (fbrValidatedCount > 0 && fbrSkippedCount > 0) {
-          title = "All Invoices Saved Successfully!";
-          text += ` (${fbrValidatedCount} validated with FBR, ${fbrSkippedCount} FBR validation skipped)`;
-        } else if (fbrSkippedCount > 0) {
-          text += " (FBR validation skipped)";
-        }
-        
         Swal.fire({
           icon: "success",
-          title: title,
-          text: text,
+          title: "All Invoices Saved and Validated Successfully!",
+          text: `${successful.length} invoices have been validated with FBR and saved successfully.`,
           confirmButtonColor: "#28a745",
         });
         setIsSubmitVisible(true);
@@ -968,22 +1129,23 @@ export default function BasicTable() {
             .map((f) => `${f.invoiceNumber}: ${f.message}`)
             .join("\n"),
           confirmButtonColor: "#d33",
+          width: "600px",
+          customClass: {
+            popup: "swal-wide",
+          },
         });
       } else {
-        const fbrValidatedCount = successful.filter(r => r.message.includes("validated with FBR")).length;
-        const fbrSkippedCount = successful.filter(r => r.message.includes("FBR validation skipped")).length;
-        
-        let text = `${successful.length} invoices saved successfully. ${failed.length} invoices failed.`;
-        
-        if (fbrValidatedCount > 0 || fbrSkippedCount > 0) {
-          text += ` (${fbrValidatedCount} validated with FBR, ${fbrSkippedCount} FBR validation skipped)`;
-        }
-        
         Swal.fire({
           icon: "warning",
           title: "Partial Success",
-          text: text,
+          text: `${successful.length} invoices validated with FBR and saved successfully. ${failed.length} invoices failed.\n\nFailed invoices:\n${failed
+            .map((f) => `${f.invoiceNumber}: ${f.message}`)
+            .join("\n")}`,
           confirmButtonColor: "#ff9800",
+          width: "600px",
+          customClass: {
+            popup: "swal-wide",
+          },
         });
         setIsSubmitVisible(true);
         getMyInvoices(); // Refresh the list
@@ -1186,6 +1348,7 @@ export default function BasicTable() {
               ...invoiceData,
               invoiceDate: dayjs(invoiceData.invoiceDate).format("YYYY-MM-DD"),
               transctypeId: invoiceData.transctypeId,
+              scenarioId: "SN001", // Hardcoded for testing
               items: cleanedItems,
             };
 
@@ -1241,13 +1404,14 @@ export default function BasicTable() {
 
             // STEP 1: Hit FBR API First
             const fbrResponse = await postData(
-              "di_data/v1/di/postinvoicedata",
+              "di_data/v1/di/postinvoicedata_sb",
               cleanedData,
               "sandbox"
             );
 
             // Handle different FBR response structures
             let fbrInvoiceNumber = null;
+            let fbrDetailNo = null;
             let isSuccess = false;
             let errorDetails = null;
 
@@ -1257,6 +1421,12 @@ export default function BasicTable() {
                 const validation = fbrResponse.data.validationResponse;
                 isSuccess = validation.statusCode === "00";
                 fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
+                // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as createInvoiceForm.jsx)
+                if (validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses) && validation.invoiceStatuses.length > 0) {
+                  fbrDetailNo = validation.invoiceStatuses[0].invoiceNo;
+                } else if (fbrResponse.data.invoiceStatuses && Array.isArray(fbrResponse.data.invoiceStatuses) && fbrResponse.data.invoiceStatuses.length > 0) {
+                  fbrDetailNo = fbrResponse.data.invoiceStatuses[0].invoiceNo;
+                }
                 if (!isSuccess) {
                   errorDetails = validation;
                 }
@@ -1268,6 +1438,12 @@ export default function BasicTable() {
               ) {
                 isSuccess = true;
                 fbrInvoiceNumber = fbrResponse.data.invoiceNumber;
+                // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as createInvoiceForm.jsx)
+                if (fbrResponse.data.invoiceStatuses && Array.isArray(fbrResponse.data.invoiceStatuses) && fbrResponse.data.invoiceStatuses.length > 0) {
+                  fbrDetailNo = fbrResponse.data.invoiceStatuses[0].invoiceNo;
+                } else if (fbrResponse.data.validationResponse && fbrResponse.data.validationResponse.invoiceStatuses && Array.isArray(fbrResponse.data.validationResponse.invoiceStatuses) && fbrResponse.data.validationResponse.invoiceStatuses.length > 0) {
+                  fbrDetailNo = fbrResponse.data.validationResponse.invoiceStatuses[0].invoiceNo;
+                }
               }
               // Check for error response structure
               else if (fbrResponse.data && fbrResponse.data.error) {
@@ -1278,6 +1454,7 @@ export default function BasicTable() {
               else if (!fbrResponse.data || fbrResponse.data === "") {
                 isSuccess = true;
                 fbrInvoiceNumber = `FBR_${Date.now()}`;
+                fbrDetailNo = `FBR_${Date.now()}-1`;
               }
               // If response is unexpected, treat as success if status is 200
               else {
@@ -1325,9 +1502,9 @@ export default function BasicTable() {
             }
 
             // Ensure we have a valid FBR invoice number
-            if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "") {
+            if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "" || !fbrDetailNo || fbrDetailNo.trim() === "") {
               throw new Error(
-                "FBR submission failed: No invoice number received from FBR"
+                "FBR submission failed: No invoice number or detail number received from FBR"
               );
             }
 
@@ -1339,6 +1516,7 @@ export default function BasicTable() {
               transctypeId: invoiceData.transctypeId,
               items: cleanedItems, // Use cleaned items for consistency
               fbr_invoice_number: fbrInvoiceNumber,
+              fbr_detail_no: fbrDetailNo,
               status: "posted", // Set status as posted since it's been submitted to FBR
             };
 

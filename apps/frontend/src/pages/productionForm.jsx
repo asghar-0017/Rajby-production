@@ -898,7 +898,7 @@ export default function ProductionFoam() {
       if (isValidationSuccess) {
         try {
           const postRes = await postData(
-            "di_data/v1/di/postinvoicedata",
+            "di_data/v1/di/postinvoicedata_sb",
             cleanedData,
             "production"
           );

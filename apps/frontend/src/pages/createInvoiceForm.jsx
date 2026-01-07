@@ -1039,6 +1039,9 @@ export default function CreateInvoice() {
             advanceIncomeTax: item.advanceIncomeTax || "0",
             cartages: item.cartages || "0",
             others: item.others || "0",
+            // Preserve InvoiceDetId and InvoiceItemId from draft
+            InvoiceDetId: item.InvoiceDetId || null,
+            InvoiceItemId: item.InvoiceItemId || null,
             isValueSalesManual: false,
             isTotalValuesManual: false,
             isSalesTaxManual: false,
@@ -2827,7 +2830,7 @@ export default function CreateInvoice() {
         ),
       };
 
-      // Create items for backend that include all fields (including advanceIncomeTax)
+      // Create items for backend that include all fields (including advanceIncomeTax, InvoiceDetId, InvoiceItemId)
       const backendItems = itemsToSave.map((item) => ({
         ...item,
         quantity: item.quantity === "" ? 0 : parseFloat(item.quantity),
@@ -2847,6 +2850,9 @@ export default function CreateInvoice() {
         advanceIncomeTax: Number(Number(item.advanceIncomeTax || 0).toFixed(2)), // Keep in database
         cartages: Number(Number(item.cartages || 0).toFixed(2)),
         others: Number(Number(item.others || 0).toFixed(2)),
+        // Preserve InvoiceDetId and InvoiceItemId if they exist
+        InvoiceDetId: item.InvoiceDetId || null,
+        InvoiceItemId: item.InvoiceItemId || null,
       }));
 
       const backendData = {
@@ -3140,7 +3146,7 @@ export default function CreateInvoice() {
 
       if (isSuccess) {
         // If validation passes, save the invoice with status 'saved'
-        // Create items for backend that include all fields (including advanceIncomeTax)
+        // Create items for backend that include all fields (including advanceIncomeTax, InvoiceDetId, InvoiceItemId)
         const backendItems = itemsToSave.map((item) => ({
           ...item,
           quantity: item.quantity === "" ? 0 : parseFloat(item.quantity),
@@ -3160,6 +3166,9 @@ export default function CreateInvoice() {
           advanceIncomeTax: Number(
             Number(item.advanceIncomeTax || 0).toFixed(2)
           ), // Keep in database
+          // Preserve InvoiceDetId and InvoiceItemId if they exist
+          InvoiceDetId: item.InvoiceDetId || null,
+          InvoiceItemId: item.InvoiceItemId || null,
         }));
 
         const backendData = {
