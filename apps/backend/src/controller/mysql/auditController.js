@@ -16,6 +16,7 @@ export const getAuditLogs = async (req, res) => {
       startDate,
       endDate,
       search,
+      includeCleanupDeletions,
       page = 1,
       limit = 50,
       sortBy = "created_at",
@@ -32,6 +33,7 @@ export const getAuditLogs = async (req, res) => {
       startDate,
       endDate,
       search,
+      includeCleanupDeletions: includeCleanupDeletions === 'true' || includeCleanupDeletions === true,
     };
 
     const pagination = {

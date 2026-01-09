@@ -685,11 +685,14 @@ export const createInvoice = async (req, res) => {
     });
 
     // Log audit event for invoice creation
+    // If invoice is created with "posted" status, log as SUBMIT_TO_FBR instead of CREATE
+    const auditOperation = result.status === "posted" ? "SUBMIT_TO_FBR" : "CREATE";
+    
     await logAuditEvent(
       req,
       "invoice",
       result.id,
-      "CREATE",
+      auditOperation,
       null, // oldValues
       {
         // Basic Invoice Information
@@ -755,6 +758,7 @@ export const createInvoice = async (req, res) => {
       {
         entityName: result.invoice_number || result.system_invoice_id,
         itemsCount: items ? items.length : 0,
+        fbrInvoiceNumber: result.fbr_invoice_number,
       }
     );
 
@@ -4606,20 +4610,42 @@ export const deleteInvoice = async (req, res) => {
     // Soft delete: Set isDeleted to true instead of destroying
     await invoice.update({ isDeleted: true });
 
+    // Determine deletion reason/context
+    const deletionReason = req.body?.deletionReason || 
+                          (invoice.status === "draft" || invoice.status === "saved" 
+                            ? "Deleted after successful submission to FBR" 
+                            : "Invoice deleted");
+    
+    // Check if this is a cleanup deletion (after submission)
+    const isCleanupDeletion = req.body?.isCleanupDeletion === true || 
+                             req.body?.deletionReason === "Deleted after successful submission to FBR" ||
+                             (invoice.status === "draft" || invoice.status === "saved");
+
     // Log audit event for invoice deletion
-    await logAuditEvent(
-      req,
-      "invoice",
-      invoice.id,
-      "DELETE",
-      oldValues, // oldValues
-      null, // newValues (null for deletion)
-      {
-        entityName: invoice.invoice_number || invoice.system_invoice_id,
-        endpoint: req.originalUrl,
-        method: req.method,
-      }
-    );
+    try {
+      await logAuditEvent(
+        req,
+        "invoice",
+        invoice.id,
+        "DELETE",
+        oldValues, // oldValues
+        null, // newValues (null for deletion)
+        {
+          entityName: invoice.invoice_number || invoice.system_invoice_id,
+          endpoint: req.originalUrl,
+          method: req.method,
+          deletionReason: deletionReason,
+          invoiceStatus: invoice.status,
+          fbrInvoiceNumber: invoice.fbr_invoice_number,
+          isCleanupDeletion: isCleanupDeletion, // Flag to identify cleanup deletions
+        }
+      );
+      console.log(`✅ Audit log created for invoice deletion - Invoice ID: ${invoice.id}, Status: ${invoice.status}`);
+    } catch (auditError) {
+      // Log error but don't fail the deletion
+      console.error(`❌ Error creating audit log for invoice deletion:`, auditError);
+      console.error(`❌ Invoice ID: ${invoice.id}, Error:`, auditError.message);
+    }
 
     res.status(200).json({
       success: true,
@@ -7486,63 +7512,55 @@ export const validateInvoiceDataController = async (req, res) => {
   try {
     const { tenantId } = req.params;
 
-    const { environment = "sandbox" } = req.query;
+    const { environment = "production" } = req.query;
 
     const invoiceData = req.body;
-
-    // Get token from request headers
-
-    const token = req.headers.authorization?.replace("Bearer ", "");
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-
-        message: "Authorization token required",
-      });
-    }
 
     console.log(
       `Validating invoice data for tenant: ${tenantId}, environment: ${environment}`
     );
 
-    // Get tenant data to check FBR credentials
-
-    const tenant = await Tenant.findByPk(tenantId);
-
-    if (!tenant) {
+    // Get tenant FBR token from the tenant middleware (set by identifyTenant)
+    if (!req.tenant) {
       return res.status(404).json({
         success: false,
-
         message: "Tenant not found",
       });
     }
 
-    // Check if tenant has FBR credentials
+    // Check if tenant has FBR credentials based on environment
+    const token = environment === "production" 
+      ? req.tenant.productionToken || req.tenant.sandboxProductionToken
+      : req.tenant.sandboxTestToken || req.tenant.sandboxProductionToken;
 
-    if (!tenant.sandboxProductionToken) {
+    if (!token) {
       return res.status(400).json({
         success: false,
-
-        message: "FBR credentials not found for this tenant",
+        message: `FBR ${environment} token not found for this tenant`,
       });
     }
 
-    // Call FBR service to validate invoice data
+    // Import FBR service
+    const { validateInvoiceData } = await import("../../service/FBRService.js");
 
+    // Call FBR service to validate invoice data
     const validationResult = await validateInvoiceData(
       invoiceData,
-
       environment,
-
       token
     );
 
-    res.json({
-      success: true,
-
-      message: "Invoice data validated successfully",
-
+    // Check if validation was successful (statusCode "00" means success)
+    const validationResponse = validationResult?.validationResponse;
+    const isValid = validationResponse?.statusCode === "00";
+    
+    // Return response in format expected by frontend
+    res.status(200).json({
+      success: isValid,
+      message: isValid 
+        ? "Invoice data validated successfully" 
+        : validationResponse?.error || "Invoice validation failed",
+      status: 200,
       data: validationResult,
     });
   } catch (error) {
@@ -7600,64 +7618,52 @@ export const submitInvoiceDataController = async (req, res) => {
   try {
     const { tenantId } = req.params;
 
-    const { environment = "sandbox" } = req.query;
+    const { environment = "production" } = req.query;
 
     const invoiceData = req.body;
-
-    // Get token from request headers
-
-    const token = req.headers.authorization?.replace("Bearer ", "");
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-
-        message: "Authorization token required",
-      });
-    }
 
     console.log(
       `Submitting invoice data for tenant: ${tenantId}, environment: ${environment}`
     );
 
-    // Get tenant data to check FBR credentials
-
-    const tenant = await Tenant.findByPk(tenantId);
-
-    if (!tenant) {
+    // Get tenant FBR token from the tenant middleware (set by identifyTenant)
+    if (!req.tenant) {
       return res.status(404).json({
         success: false,
-
         message: "Tenant not found",
       });
     }
 
-    // Check if tenant has FBR credentials
+    // Check if tenant has FBR credentials based on environment
+    const token = environment === "production" 
+      ? req.tenant.productionToken || req.tenant.sandboxProductionToken
+      : req.tenant.sandboxTestToken || req.tenant.sandboxProductionToken;
 
-    if (!tenant.sandboxProductionToken) {
+    if (!token) {
       return res.status(400).json({
         success: false,
-
-        message: "FBR credentials not found for this tenant",
+        message: `FBR ${environment} token not found for this tenant`,
       });
     }
 
+    // Import FBR service
+    const { postData } = await import("../../service/FBRService.js");
+
     // Call FBR service to submit invoice data
-
-    const submissionResult = await submitInvoiceData(
+    const fbrResponse = await postData(
+      "di_data/v1/di/postinvoicedata_sb",
       invoiceData,
-
       environment,
-
       token
     );
 
-    res.json({
+    // Return response in format expected by frontend
+    // The frontend expects a response with status and data properties
+    res.status(200).json({
       success: true,
-
       message: "Invoice data submitted successfully",
-
-      data: submissionResult,
+      status: fbrResponse.status || 200,
+      data: fbrResponse.data || fbrResponse,
     });
   } catch (error) {
     console.error("Error submitting invoice data:", error);

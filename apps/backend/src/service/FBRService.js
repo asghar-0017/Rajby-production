@@ -6,7 +6,7 @@ const FBR_BASE_URL = "https://gw.fbr.gov.pk";
 export const postData = async (
   endpoint,
   data,
-  environment = "sandbox",
+  environment = "production",
   token = null
 ) => {
   if (!token) {
@@ -162,7 +162,7 @@ export const getProvinces = async (environment = "sandbox", token = null) => {
 // New function to validate invoice data with FBR
 export const validateInvoiceData = async (
   invoiceData,
-  environment = "sandbox",
+  environment = "production",
   token = null
 ) => {
   if (!token) {
@@ -178,13 +178,13 @@ export const validateInvoiceData = async (
 
   try {
     const response = await axios.post(
-      `${FBR_BASE_URL}/di_data/v1/di/validateinvoicedata_sb`,
+      `${FBR_BASE_URL}/di_data/v1/di/validateinvoicedata`,
       invoiceData,
       config
     );
 
     console.log("FBR Invoice Validation API Response:", {
-      endpoint: "di_data/v1/di/validateinvoicedata_sb",
+      endpoint: "di_data/v1/di/validateinvoicedata",
       status: response.status,
       data: response.data,
     });
@@ -192,7 +192,7 @@ export const validateInvoiceData = async (
     return response.data;
   } catch (error) {
     console.error("FBR Invoice Validation API Error:", {
-      endpoint: "di_data/v1/di/validateinvoicedata_sb",
+      endpoint: "di_data/v1/di/validateinvoicedata",
       message: error.message,
       status: error.response?.status,
       data: error.response?.data,
@@ -204,7 +204,7 @@ export const validateInvoiceData = async (
 // New function to submit invoice data to FBR
 export const submitInvoiceData = async (
   invoiceData,
-  environment = "sandbox",
+  environment = "production",
   token = null
 ) => {
   if (!token) {
@@ -220,13 +220,13 @@ export const submitInvoiceData = async (
 
   try {
     const response = await axios.post(
-      `${FBR_BASE_URL}/pdi/v1/di_data/v1/di/postinvoicedata_sb`,
+      `${FBR_BASE_URL}/pdi/v1/di_data/v1/di/postinvoicedata`,
       invoiceData,
       config
     );
 
     console.log("FBR Invoice Submission API Response:", {
-      endpoint: "pdi/v1/di_data/v1/di/postinvoicedata_sb",
+      endpoint: "pdi/v1/di_data/v1/di/postinvoicedata",
       status: response.status,
       data: response.data,
     });
@@ -234,7 +234,7 @@ export const submitInvoiceData = async (
     return response.data;
   } catch (error) {
     console.error("FBR Invoice Submission API Error:", {
-      endpoint: "pdi/v1/di_data/v1/di/postinvoicedata_sb",
+      endpoint: "pdi/v1/di_data/v1/di/postinvoicedata",
       message: error.message,
       status: error.response?.status,
       data: error.response?.data,

@@ -877,43 +877,59 @@ export default function ProductionFoam() {
         items: cleanedItems,
       };
 
-      const token = localStorage.getItem("token");
-      console.log("Token used:", token);
+      // Validate with FBR through backend API
+      if (!selectedTenant || !selectedTenant.tenant_id) {
+        throw new Error("No tenant selected. Please select a company first.");
+      }
 
-      const validateRes = await postData(
-        "di_data/v1/di/validateinvoicedata_sb",
-        cleanedData,
-        "production"
+      const validateRes = await api.post(
+        `/tenant/${selectedTenant.tenant_id}/validate-invoice?environment=production`,
+        cleanedData
       );
+
+      // Extract response data from backend response
+      const responseData = validateRes.data?.data || validateRes.data;
+      const responseStatus = validateRes.data?.status || validateRes.status || 200;
 
       // Handle different FBR response structures
       const hasValidationResponse =
-        validateRes.data && validateRes.data.validationResponse;
+        responseData && responseData.validationResponse;
       const isValidationSuccess =
-        validateRes.status === 200 &&
+        responseStatus === 200 &&
+        validateRes.data?.success !== false &&
         (hasValidationResponse
-          ? validateRes.data.validationResponse.statusCode === "00"
+          ? responseData.validationResponse.statusCode === "00"
           : true);
 
       if (isValidationSuccess) {
         try {
-          const postRes = await postData(
-            "di_data/v1/di/postinvoicedata_sb",
-            cleanedData,
-            "production"
+          // Submit to FBR through backend API
+          if (!selectedTenant || !selectedTenant.tenant_id) {
+            throw new Error("No tenant selected. Please select a company first.");
+          }
+
+          const postRes = await api.post(
+            `/tenant/${selectedTenant.tenant_id}/submit-invoice?environment=production`,
+            cleanedData
           );
           console.log("Post Invoice Response:", postRes);
+          
+          // Extract response data from backend response
+          const responseData = postRes.data?.data || postRes.data;
+          const responseStatus = postRes.data?.status || postRes.status || 200;
+          
           // Handle different FBR response structures for post
           const hasPostValidationResponse =
-            postRes.data && postRes.data.validationResponse;
+            responseData && responseData.validationResponse;
           const isPostSuccess =
-            postRes.status === 200 &&
+            responseStatus === 200 &&
+            postRes.data?.success !== false &&
             (hasPostValidationResponse
-              ? postRes.data.validationResponse.statusCode === "00"
+              ? responseData.validationResponse.statusCode === "00"
               : true);
 
           if (isPostSuccess) {
-            const invoiceNumber = postRes.data.invoiceNumber;
+            const invoiceNumber = responseData?.invoiceNumber || responseData?.invoiceNumber;
             Swal.fire({
               icon: "success",
               title: "Invoice Created Successfully!",
@@ -936,11 +952,11 @@ export default function ProductionFoam() {
             setIsPrintable(true);
           } else {
             // Handle different error response structures with detailed error information
-            let errorMessage = "Invoice submission failed.";
+            let errorMessage = postRes.data?.message || "Invoice submission failed.";
             let errorDetails = [];
 
             if (hasPostValidationResponse) {
-              const validation = postRes.data.validationResponse;
+              const validation = responseData.validationResponse;
               if (validation.error) {
                 errorMessage = validation.error;
               }
@@ -955,18 +971,18 @@ export default function ProductionFoam() {
                   }
                 });
               }
-            } else if (postRes.data.error) {
-              errorMessage = postRes.data.error;
-            } else if (postRes.data.message) {
-              errorMessage = postRes.data.message;
+            } else if (responseData?.error) {
+              errorMessage = responseData.error;
+            } else if (responseData?.message) {
+              errorMessage = responseData.message;
             }
 
             // Check for additional error details in the response
             if (
-              postRes.data.invoiceStatuses &&
-              Array.isArray(postRes.data.invoiceStatuses)
+              responseData?.invoiceStatuses &&
+              Array.isArray(responseData.invoiceStatuses)
             ) {
-              postRes.data.invoiceStatuses.forEach((status, index) => {
+              responseData.invoiceStatuses.forEach((status, index) => {
                 if (status.error) {
                   errorDetails.push(`Item ${index + 1}: ${status.error}`);
                 }

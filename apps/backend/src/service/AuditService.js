@@ -309,20 +309,52 @@ class AuditService {
       console.log('🔍 AuditService Debug - Query result count:', count);
       console.log('🔍 AuditService Debug - Retrieved logs count:', rows.length);
 
-      // Debug logging for retrieved logs
-      if (rows.length > 0) {
-        console.log('🔍 AuditService Debug - First log changedFields:', rows[0].changedFields);
-        console.log('🔍 AuditService Debug - First log changedFields type:', typeof rows[0].changedFields);
+      // Filter out cleanup deletions (invoices deleted after submission)
+      // Only show them if explicitly requested via includeCleanupDeletions filter
+      const includeCleanupDeletions = filters.includeCleanupDeletions === true;
+      let filteredLogs = rows;
+      
+      if (!includeCleanupDeletions) {
+        filteredLogs = rows.filter((log) => {
+          // Skip DELETE operations that are marked as cleanup deletions
+          if (log.operation === 'DELETE' && log.additionalInfo) {
+            try {
+              const additionalInfo = typeof log.additionalInfo === 'string' 
+                ? JSON.parse(log.additionalInfo) 
+                : log.additionalInfo;
+              
+              if (additionalInfo?.isCleanupDeletion === true) {
+                return false; // Hide cleanup deletions
+              }
+            } catch (e) {
+              // If parsing fails, include the log
+            }
+          }
+          return true; // Include all other logs
+        });
+        
+        console.log(`🔍 AuditService Debug - Filtered out ${rows.length - filteredLogs.length} cleanup deletion(s)`);
       }
 
+      // Debug logging for retrieved logs
+      if (filteredLogs.length > 0) {
+        console.log('🔍 AuditService Debug - First log changedFields:', filteredLogs[0].changedFields);
+        console.log('🔍 AuditService Debug - First log changedFields type:', typeof filteredLogs[0].changedFields);
+      }
+
+      // For pagination, we need to get the total count excluding cleanup deletions
+      // This is an approximation - for exact count, we'd need to query all and filter
+      // For now, we'll use the filtered count as an estimate
+      const filteredCount = includeCleanupDeletions ? count : filteredLogs.length;
+
       return {
-        logs: rows,
+        logs: filteredLogs,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
-          total: count,
-          totalPages: Math.ceil(count / limit),
-          hasMore: page * limit < count,
+          total: includeCleanupDeletions ? count : filteredCount,
+          totalPages: Math.ceil((includeCleanupDeletions ? count : filteredCount) / limit),
+          hasMore: page * limit < (includeCleanupDeletions ? count : filteredCount),
         },
       };
     } catch (error) {
