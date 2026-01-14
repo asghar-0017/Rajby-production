@@ -7651,7 +7651,7 @@ export const submitInvoiceDataController = async (req, res) => {
 
     // Call FBR service to submit invoice data
     const fbrResponse = await postData(
-      "di_data/v1/di/postinvoicedata_sb",
+      "di_data/v1/di/postinvoicedata",
       invoiceData,
       environment,
       token

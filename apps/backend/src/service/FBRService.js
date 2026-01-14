@@ -220,7 +220,7 @@ export const submitInvoiceData = async (
 
   try {
     const response = await axios.post(
-      `${FBR_BASE_URL}/pdi/v1/di_data/v1/di/postinvoicedata`,
+      `${FBR_BASE_URL}/pdi/v1/di_data/v1/di/postinvoicedata_sb`,
       invoiceData,
       config
     );
