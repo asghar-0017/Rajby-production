@@ -10,7 +10,7 @@ This API saves an invoice as a draft. When a `buyerNTNCNIC` is provided, it auto
 
 ## Base URL
 ```
-http://localhost:5150
+http://143.198.95.2:5155
 ```
 
 ## Authentication
@@ -21,7 +21,7 @@ Requires Bearer token in Authorization header.
 ### Example 1: Create New Draft Invoice with Buyer NTN/CNIC (Auto-fetches Registration Type)
 
 ```bash
-curl -X POST "http://localhost:5150/api/tenant/YOUR_TENANT_ID/invoices/save" \
+curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -d '{
@@ -78,7 +78,7 @@ curl -X POST "http://localhost:5150/api/tenant/YOUR_TENANT_ID/invoices/save" \
 ### Example 2: Update Existing Draft Invoice
 
 ```bash
-curl -X POST "http://localhost:5150/api/tenant/YOUR_TENANT_ID/invoices/save" \
+curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -d '{
@@ -131,7 +131,7 @@ curl -X POST "http://localhost:5150/api/tenant/YOUR_TENANT_ID/invoices/save" \
 ### Example 3: Create Draft Invoice with Manual Registration Type (No Buyer NTN/CNIC)
 
 ```bash
-curl -X POST "http://localhost:5150/api/tenant/YOUR_TENANT_ID/invoices/save" \
+curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
   -d '{
