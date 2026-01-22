@@ -131,10 +131,9 @@ export const login = async (req, res) => {
  */
 export const getBuyers = async (req, res) => {
   try {
-    // Check if token is provided in request header (from frontend localStorage)
-    const providedToken = req.headers["x-rajby-token"] || req.headers["X-Rajby-Token"];
-
-    const token = await getRajbyToken(providedToken);
+    // Always call login API first to get fresh token
+    console.log(`[Rajby API] Calling login API first to get token for getBuyers operation`);
+    const token = await getRajbyToken();
 
     const response = await axios.get(
       `${RAJBY_API_BASE_URL}/api/Buyer/local-invoice-buyers`,
@@ -171,10 +170,9 @@ export const getBuyers = async (req, res) => {
  */
 export const getProducts = async (req, res) => {
   try {
-    // Check if token is provided in request header (from frontend localStorage)
-    const providedToken = req.headers["x-rajby-token"] || req.headers["X-Rajby-Token"];
-
-    const token = await getRajbyToken(providedToken);
+    // Always call login API first to get fresh token
+    console.log(`[Rajby API] Calling login API first to get token for getProducts operation`);
+    const token = await getRajbyToken();
 
     const response = await axios.get(`${RAJBY_API_BASE_URL}/api/Item/all`, {
       headers: {
@@ -217,21 +215,31 @@ export const deleteInvoice = async (req, res) => {
       });
     }
 
-    // Check if token is provided in request header (from frontend localStorage)
-    const providedToken = req.headers["x-rajby-token"] || req.headers["X-Rajby-Token"];
-
-    const result = await deleteRajbyInvoice(companyInvoiceRefNo, 1, providedToken);
+    // Always call login API first to get fresh token (handled inside deleteRajbyInvoice)
+    console.log(`[Rajby API] Will call login API first to get token for deleteInvoice operation`);
+    const result = await deleteRajbyInvoice(companyInvoiceRefNo, 1);
 
     return res.status(200).json({
       success: true,
       data: result,
     });
   } catch (error) {
-    console.error("Error deleting Rajby invoice:", error);
-    return res.status(500).json({
+    const status = error?.response?.status || 500;
+    const data = error?.response?.data;
+    console.error("Error deleting Rajby invoice:", {
+      status,
+      message: error?.message,
+      data,
+    });
+
+    return res.status(status).json({
       success: false,
-      message: error.message || "Failed to delete invoice from Rajby",
-      error: error.message,
+      message:
+        data?.message ||
+        data?.error ||
+        error?.message ||
+        "Failed to delete invoice from Rajby",
+      error: data || error?.message || "Unknown error",
     });
   }
 };

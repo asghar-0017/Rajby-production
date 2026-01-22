@@ -936,6 +936,77 @@ export const createInvoice = async (req, res) => {
   }
 };
 
+// Helper function to check FBR registration status for buyer
+const checkBuyerRegistrationType = async (registrationNo) => {
+  if (!registrationNo || !registrationNo.trim()) {
+    return "Unregistered";
+  }
+
+  const maxRetries = 2;
+  const timeout = 12000; // 12 seconds timeout
+  const FBR_API_URL = "https://buyercheckapi.inplsoftwares.online/checkbuyer.php";
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const axios = (await import("axios")).default;
+      const { data } = await axios.post(
+        FBR_API_URL,
+        {
+          token: "89983e4a-c009-3f9b-bcd6-a605c3086709",
+          registrationNo: registrationNo.trim(),
+        },
+        { headers: { "Content-Type": "application/json" }, timeout }
+      );
+
+      let derivedRegistrationType = "";
+      if (data && typeof data.REGISTRATION_TYPE === "string") {
+        derivedRegistrationType =
+          data.REGISTRATION_TYPE.toLowerCase() === "registered"
+            ? "Registered"
+            : "Unregistered";
+      } else {
+        let isRegistered = false;
+        if (typeof data === "boolean") {
+          isRegistered = data;
+        } else if (data) {
+          isRegistered =
+            data.isRegistered === true ||
+            data.registered === true ||
+            (typeof data.status === "string" &&
+              data.status.toLowerCase() === "registered") ||
+            (typeof data.registrationType === "string" &&
+              data.registrationType.toLowerCase() === "registered");
+        }
+        derivedRegistrationType = isRegistered ? "Registered" : "Unregistered";
+      }
+
+      console.log(`[saveInvoice] Buyer registration type checked: ${registrationNo} -> ${derivedRegistrationType}`);
+      return derivedRegistrationType;
+    } catch (error) {
+      console.error(
+        `[saveInvoice] Error checking FBR registration for ${registrationNo} (attempt ${attempt}/${maxRetries}):`,
+        error.message
+      );
+
+      // If upstream returns 400 (invalid NTN/CNIC), don't retry further
+      if (error?.response?.status === 400) {
+        return "Unregistered";
+      }
+
+      if (attempt === maxRetries) {
+        // Return "Unregistered" as default if all retries fail
+        console.warn(`[saveInvoice] Failed to check buyer registration after ${maxRetries} attempts, defaulting to Unregistered`);
+        return "Unregistered";
+      }
+
+      // Wait before retry (exponential backoff)
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+    }
+  }
+  
+  return "Unregistered";
+};
+
 // Save invoice as draft
 
 export const saveInvoice = async (req, res) => {
@@ -983,6 +1054,23 @@ export const saveInvoice = async (req, res) => {
 
       items,
     } = req.body;
+
+    // Check buyer registration type from FBR API if buyerNTNCNIC is provided
+    let finalBuyerRegistrationType = buyerRegistrationType;
+    if (buyerNTNCNIC && buyerNTNCNIC.trim()) {
+      try {
+        console.log(`[saveInvoice] Checking buyer registration type for: ${buyerNTNCNIC}`);
+        finalBuyerRegistrationType = await checkBuyerRegistrationType(buyerNTNCNIC);
+        console.log(`[saveInvoice] Buyer registration type from FBR API: ${finalBuyerRegistrationType}`);
+      } catch (error) {
+        console.error(`[saveInvoice] Error checking buyer registration type:`, error.message);
+        // Use provided buyerRegistrationType or default to "Unregistered" if API call fails
+        finalBuyerRegistrationType = buyerRegistrationType || "Unregistered";
+      }
+    } else {
+      // If no buyerNTNCNIC provided, use the provided buyerRegistrationType or default to "Unregistered"
+      finalBuyerRegistrationType = buyerRegistrationType || "Unregistered";
+    }
 
     // Create or update draft invoice in a transaction
 
@@ -1053,7 +1141,7 @@ export const saveInvoice = async (req, res) => {
 
             buyerAddress,
 
-            buyerRegistrationType,
+            buyerRegistrationType: finalBuyerRegistrationType,
 
             buyerTelephone,
 
@@ -1134,7 +1222,7 @@ export const saveInvoice = async (req, res) => {
 
             buyerAddress,
 
-            buyerRegistrationType,
+            buyerRegistrationType: finalBuyerRegistrationType,
 
             buyerTelephone,
 
@@ -4413,10 +4501,6 @@ export const deleteInvoice = async (req, res) => {
       where: { invoice_id: invoice.id },
     });
 
-    // Check if Rajby deletion should be skipped (already done from frontend)
-    const skipRajbyDelete = req.body?.skipRajbyDelete === true;
-    const rajbyDeleteResult = req.body?.rajbyDeleteResult;
-    
     // Check if invoice was created/submitted through bulk upload
     // Bulk uploaded invoices have invoice numbers starting with "DRAFT_" or "SAVED_"
     // We skip Rajby API delete for all bulk uploaded invoices (regardless of status)
@@ -4430,121 +4514,74 @@ export const deleteInvoice = async (req, res) => {
     const companyInvoiceRefNo = invoice.companyInvoiceRefNo?.trim();
     
     console.log(
-      `[Invoice Delete] Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo || 'NULL/EMPTY'}, Invoice Number: ${invoice.invoice_number}, Status: ${invoice.status}, Skip Rajby Delete: ${skipRajbyDelete}, Is Bulk Uploaded: ${isBulkUploadedInvoice}`
+      `[Invoice Delete] Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo || 'NULL/EMPTY'}, Invoice Number: ${invoice.invoice_number}, Status: ${invoice.status}, Is Bulk Uploaded: ${isBulkUploadedInvoice}`
     );
     
-    // Skip Rajby API delete for invoices created/submitted through bulk upload
-    // These invoices never interact with Rajby API, similar to createInvoiceForm.jsx flow
-    if (isBulkUploadedInvoice) {
-      console.log(
-        `[Invoice Delete] Skipping Rajby API delete - Invoice was created/submitted through bulk upload. Invoice ID: ${invoice.id}, Invoice Number: ${invoice.invoice_number}, Status: ${invoice.status}`
+    // Require Company Invoice Reference for Rajby deletion (for all invoices, including bulk)
+    if (!companyInvoiceRefNo || companyInvoiceRefNo.length === 0) {
+      console.error(
+        `[Invoice Delete] Cannot delete invoice - companyInvoiceRefNo is missing or empty for invoice ID: ${invoice.id}, Invoice Number: ${invoice.invoice_number}`
       );
-      // Set flag to skip Rajby API call - proceed with local deletion only
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete invoice: Company Invoice Reference Number is missing or empty. Rajby API deletion is required.",
+        rajbyApiResult: {
+          success: false,
+          message: "Company Invoice Reference Number is missing or empty. Cannot proceed with deletion.",
+        },
+      });
     }
-    
-    // If Rajby deletion was already done from frontend, use that result
-    if (skipRajbyDelete && rajbyDeleteResult) {
+
+    // Always call Rajby API before local delete; fail fast on any Rajby error
+    // The deleteRajbyInvoice function will call login API first to get fresh token
+    try {
       console.log(
-        `[Invoice Delete] Rajby deletion already completed from frontend, using provided result`
+        `[Invoice Delete] Attempting to delete from Rajby API first. Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo}, Is Bulk Uploaded: ${isBulkUploadedInvoice}`
       );
-      rajbyApiResult = rajbyDeleteResult;
-      
-      // Verify the provided result indicates success
+      console.log(`[Invoice Delete] Will call Rajby login API first to get fresh token`);
+
+      rajbyApiResult = await deleteRajbyInvoice(companyInvoiceRefNo, 1);
+      console.log(`[Invoice Delete] Rajby API delete response:`, JSON.stringify(rajbyApiResult, null, 2));
+
       if (!rajbyApiResult || rajbyApiResult.success !== true) {
         const errorMsg = rajbyApiResult?.message || "Rajby API deletion failed";
-        console.error(
-          `[Invoice Delete] Frontend provided Rajby API result indicates failure: ${errorMsg}`
-        );
+        console.error(`[Invoice Delete] Rajby API returned failure: ${errorMsg}`);
         return res.status(400).json({
           success: false,
           message: `Failed to delete invoice from Rajby API: ${errorMsg}`,
           rajbyApiResult: rajbyApiResult,
         });
       }
-    } else if (!skipRajbyDelete && !isBulkUploadedInvoice) {
-      // Only perform Rajby deletion if not already done from frontend and not a bulk uploaded invoice
-      if (!companyInvoiceRefNo || companyInvoiceRefNo.length === 0) {
-        // If companyInvoiceRefNo is missing, don't delete locally
-        console.error(
-          `[Invoice Delete] Cannot delete invoice - companyInvoiceRefNo is missing or empty for invoice ID: ${invoice.id}, Invoice Number: ${invoice.invoice_number}`
-        );
-        return res.status(400).json({
+    } catch (rajbyError) {
+      console.error(`[Invoice Delete] Failed to delete invoice from Rajby API`);
+      console.error(`[Invoice Delete] Invoice ID: ${invoice.id}`);
+      console.error(`[Invoice Delete] Company Invoice Ref No: ${companyInvoiceRefNo}`);
+      console.error(`[Invoice Delete] Error:`, rajbyError.message);
+      console.error(`[Invoice Delete] Full Error:`, rajbyError);
+
+      return res.status(400).json({
+        success: false,
+        message: `Failed to delete invoice from Rajby API: ${rajbyError.message}`,
+        rajbyApiResult: {
           success: false,
-          message: "Cannot delete invoice: Company Invoice Reference Number is missing or empty. Rajby API deletion is required.",
-          rajbyApiResult: {
-            success: false,
-            skipped: true,
-            message: "Company Invoice Reference Number is missing or empty. Cannot proceed with deletion.",
-          },
-        });
-      }
-      
-      // companyInvoiceRefNo exists, proceed with Rajby API deletion
-      try {
-        // Extract Rajby token from request headers (X-Rajby-Token header from frontend localStorage)
-        const rajbyToken = req.headers['x-rajby-token'] || req.headers['X-Rajby-Token'];
-        
-        console.log(
-          `[Invoice Delete] Attempting to delete from Rajby API first. Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo}`
-        );
-        if (rajbyToken) {
-          console.log(
-            `[Invoice Delete] Using Rajby token from request header (localStorage)`
-          );
-        } else {
-          console.log(
-            `[Invoice Delete] No Rajby token in request header, will fetch from API`
-          );
-        }
-        rajbyApiResult = await deleteRajbyInvoice(companyInvoiceRefNo, 1, rajbyToken);
-        console.log(
-          `[Invoice Delete] Rajby API delete SUCCESS:`,
-          JSON.stringify(rajbyApiResult, null, 2)
-        );
-        
-        // Verify Rajby API returned success
-        if (!rajbyApiResult || rajbyApiResult.success !== true) {
-          const errorMsg = rajbyApiResult?.message || "Rajby API deletion failed";
-          console.error(
-            `[Invoice Delete] Rajby API returned failure: ${errorMsg}`
-          );
-          return res.status(400).json({
-            success: false,
-            message: `Failed to delete invoice from Rajby API: ${errorMsg}`,
-            rajbyApiResult: rajbyApiResult,
-          });
-        }
-      } catch (rajbyError) {
-        // Log detailed error information
-        console.error(
-          `[Invoice Delete] Failed to delete invoice from Rajby API`
-        );
-        console.error(`[Invoice Delete] Invoice ID: ${invoice.id}`);
-        console.error(`[Invoice Delete] Company Invoice Ref No: ${companyInvoiceRefNo}`);
-        console.error(`[Invoice Delete] Error:`, rajbyError.message);
-        console.error(`[Invoice Delete] Full Error:`, rajbyError);
-        
-        // Return error - don't proceed with local deletion if Rajby API fails
-        return res.status(400).json({
+          error: rajbyError.message,
+        },
+      });
+    }
+
+    // Safety: never allow local deletion unless Rajby deletion succeeded
+    if (!rajbyApiResult || rajbyApiResult.success !== true) {
+      console.error(
+        `[Invoice Delete] Blocking local deletion because Rajby API result is missing/failed. Invoice ID: ${invoice.id}, Invoice Number: ${invoice.invoice_number}`
+      );
+      return res.status(400).json({
+        success: false,
+        message: "Cannot delete invoice locally because Rajby API deletion did not succeed.",
+        rajbyApiResult: rajbyApiResult ?? {
           success: false,
-          message: `Failed to delete invoice from Rajby API: ${rajbyError.message}`,
-          rajbyApiResult: {
-            success: false,
-            error: rajbyError.message,
-          },
-        });
-      }
-    } else if (skipRajbyDelete || isBulkUploadedInvoice) {
-      // skipRajbyDelete is true or invoice is bulk uploaded - proceed with local deletion only
-      if (isBulkUploadedInvoice) {
-        console.log(
-          `[Invoice Delete] Skipping Rajby API delete for bulk uploaded invoice. Proceeding with local deletion only.`
-        );
-      } else {
-        console.warn(
-          `[Invoice Delete] skipRajbyDelete is true but no rajbyDeleteResult provided. Proceeding with local deletion only.`
-        );
-      }
+          message: "Rajby API result is null/missing.",
+        },
+      });
     }
 
     // Store old values for audit before soft deletion

@@ -6,28 +6,26 @@ let rajbyTokenCache = {
 
 /**
  * Get fresh Rajby API token
- * Returns provided token if available, cached token if still valid, otherwise fetches a new one
- * @param {string} providedToken - Optional token provided from request (e.g., from localStorage)
+ * Always calls login API first to get a fresh token (ignores provided tokens from frontend)
+ * Uses cached token only if still valid (within 5 min buffer), otherwise calls login API
  * @returns {Promise<string>} The Rajby API token
  */
-export async function getRajbyToken(providedToken = null) {
-  // If a token is provided, use it directly
-  if (providedToken && typeof providedToken === "string" && providedToken.trim().length > 0) {
-    console.log("Using provided Rajby token from request");
-    return providedToken.trim();
-  }
-
+export async function getRajbyToken() {
   const axios = (await import("axios")).default;
 
   // Return cached token if still valid (with 5 min buffer)
+  // Otherwise, always call login API to get fresh token
   if (
     rajbyTokenCache.token &&
     rajbyTokenCache.expiresAt &&
     Date.now() < rajbyTokenCache.expiresAt - 300000
   ) {
-    console.log("Using cached Rajby token");
+    console.log("Using cached Rajby token (still valid)");
     return rajbyTokenCache.token;
   }
+
+  // Cache expired or doesn't exist - always call login API to get fresh token
+  console.log("Rajby token cache expired or missing - calling login API to get fresh token");
 
   const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
   const RAJBY_USERNAME = process.env.RAJBY_USERNAME || "innovative";
@@ -145,12 +143,12 @@ export async function getRajbyToken(providedToken = null) {
 
 /**
  * Delete invoice from Rajby API
+ * Always calls login API first to get a fresh token before performing the delete
  * @param {string} companyInvoiceRefNo - The company invoice reference number
  * @param {number} retries - Number of retry attempts (default: 1)
- * @param {string} providedToken - Optional Rajby token provided from request (e.g., from localStorage)
  * @returns {Promise<Object>} The response from Rajby API
  */
-export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1, providedToken = null) {
+export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1) {
   if (!companyInvoiceRefNo) {
     throw new Error("Company Invoice Reference Number is required");
   }
@@ -158,10 +156,11 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1, provi
   const axios = (await import("axios")).default;
   const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
   
-  // Get token with retry logic - use provided token if available
+  // Always call login API first to get fresh token
   let token;
   try {
-    token = await getRajbyToken(providedToken);
+    console.log(`[Rajby API] Calling login API first to get token for DELETE operation`);
+    token = await getRajbyToken();
   } catch (tokenError) {
     console.error(`[Rajby API] Failed to get token:`, tokenError.message);
     throw new Error(`Failed to get Rajby token: ${tokenError.message}`);
@@ -209,16 +208,16 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1, provi
         
         // Don't retry on client errors (4xx) except 408 (Request Timeout)
         if (error.response.status >= 400 && error.response.status < 500 && error.response.status !== 408) {
-          throw new Error(`Rajby API DELETE failed: ${errorMessage} (Status: ${error.response.status})`);
+          throw new Error(`Rajby API DELETE failed: ${errorMessage}`);
         }
         
         // Retry on server errors (5xx) or 408
-        if (attempt < retries && (error.response.status >= 500 || error.response.status === 408)) {
-          console.log(`[Rajby API] Server error ${error.response.status}, will retry...`);
-          continue;
-        }
+        // if (attempt < retries && (error.response.status >= 500 || error.response.status === 408)) {
+        //   console.log(`[Rajby API] Server error ${error.response.status}, will retry...`);
+        //   continue;
+        // }
         
-        throw new Error(`Rajby API DELETE failed: ${errorMessage} (Status: ${error.response.status})`);
+        throw new Error(`Rajby API DELETE failed: ${errorMessage}`);
       } else if (error.request) {
         // The request was made but no response was received
         console.error(`[Rajby API] DELETE Error: No response received (Attempt ${attempt + 1}/${retries + 1})`);
@@ -250,12 +249,12 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1, provi
 
 /**
  * Submit FBR reference for invoice to Rajby API
+ * Always calls login API first to get a fresh token before performing the submission
  * @param {Object} params - Parameters for FBR reference submission
  * @param {string} params.fbrInvoiceNumber - The FBR invoice number
  * @param {string} params.companyInvoiceRefNo - Company invoice reference number
  * @param {string} params.invoiceDate - Invoice date in YYYY-MM-DD format
  * @param {Array} params.invoiceDetails - Array of invoice detail objects with detInvNo and fbrNo
- * @param {string} providedToken - Optional Rajby token provided from request
  * @returns {Promise<Object>} The response from Rajby API
  */
 export async function submitFBRReference({
@@ -263,16 +262,17 @@ export async function submitFBRReference({
   companyInvoiceRefNo,
   invoiceDate,
   invoiceDetails = [],
-}, providedToken = null) {
+}) {
  
 
   const axios = (await import("axios")).default;
   const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
   
-  // Get token with retry logic - use provided token if available
+  // Always call login API first to get fresh token
   let token;
   try {
-    token = await getRajbyToken(providedToken);
+    console.log(`[Rajby API] Calling login API first to get token for FBR Reference operation`);
+    token = await getRajbyToken();
   } catch (tokenError) {
     console.error(`[Rajby API] Failed to get token for FBR Reference:`, tokenError.message);
     throw new Error(`Failed to get Rajby token: ${tokenError.message}`);
