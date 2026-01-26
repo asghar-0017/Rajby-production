@@ -58,7 +58,7 @@ const Login = ({ onLogin }) => {
           lineHeight: 1.6
         }}
       >
-        Due to non signing of agreement, the system is temporarily suspended. Please contact our legal department for services revocation.
+        Due to the non-signing of the agreement, the system has been temporarily suspended. Please contact our legal department regarding service revocation
       </Typography>
     </Box>
   );
