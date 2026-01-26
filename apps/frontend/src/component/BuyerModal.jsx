@@ -725,7 +725,7 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
                   checkingBuyerRegistration
                     ? "Checking registration from FBR..."
                     : buyerRegistrationHint ||
-                      `${formData.documentType === "NTN" ? "NTN: Max 7 alphanumeric characters" : "CNIC: Exactly 13 numbers only"} (${formData.buyerNTNCNIC.length}/${formData.documentType === "NTN" ? "7" : "13"})`
+                    `${formData.documentType === "NTN" ? "NTN: Max 7 alphanumeric characters" : "CNIC: Exactly 13 numbers only"} (${formData.buyerNTNCNIC.length}/${formData.documentType === "NTN" ? "7" : "13"})`
                 }
               />
 

@@ -39,6 +39,30 @@ const Login = ({ onLogin }) => {
     setShowPassword(!showPassword);
   };
 
+  const renderSuspensionMessage = () => (
+    <Box
+      sx={{
+        p: 3,
+        bgcolor: 'rgba(237, 91, 42, 0.1)',
+        borderRadius: 2,
+        border: '1px solid #ED5B2A',
+        mt: 2,
+        textAlign: 'center'
+      }}
+    >
+      <Typography
+        variant="body1"
+        sx={{
+          color: "#d32f2f",
+          fontWeight: 600,
+          lineHeight: 1.6
+        }}
+      >
+        Due to non signing of agreement, the system is temporarily suspended. Please contact our legal department for services revocation.
+      </Typography>
+    </Box>
+  );
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -70,7 +94,7 @@ const Login = ({ onLogin }) => {
             justifyContent: "center",
           }}
         >
-          <Box
+          {/* <Box
             sx={{
               display: "flex",
               flexDirection: "column",
@@ -98,8 +122,11 @@ const Login = ({ onLogin }) => {
             >
               Enter your details here
             </Typography>
-          </Box>
+          </Box> */}
 
+          {renderSuspensionMessage()}
+
+          {/* 
           <form onSubmit={handleSubmit}>
             <TextField
               label="Email"
@@ -205,6 +232,7 @@ const Login = ({ onLogin }) => {
               {loading ? "Logging in..." : "Login"}
             </Button>
           </form>
+          */}
         </Paper>
       </div>
 

@@ -220,7 +220,7 @@ export const deleteRajbyInvoice = async (companyInvoiceRefNo) => {
   if (!companyInvoiceRefNo) {
     throw new Error("Company Invoice Reference Number is required");
   }
-  
+
   // Call backend route - backend will handle token management
   const response = await api.delete(
     `/rajby-invoices/${encodeURIComponent(companyInvoiceRefNo)}`,
