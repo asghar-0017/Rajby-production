@@ -94,7 +94,7 @@ const Login = ({ onLogin }) => {
             justifyContent: "center",
           }}
         >
-          {/* <Box
+          <Box
             sx={{
               display: "flex",
               flexDirection: "column",
@@ -122,11 +122,11 @@ const Login = ({ onLogin }) => {
             >
               Enter your details here
             </Typography>
-          </Box> */}
+          </Box>
 
-          {renderSuspensionMessage()}
+          {/* {renderSuspensionMessage()} */}
 
-          {/* 
+
           <form onSubmit={handleSubmit}>
             <TextField
               label="Email"
@@ -232,7 +232,7 @@ const Login = ({ onLogin }) => {
               {loading ? "Logging in..." : "Login"}
             </Button>
           </form>
-          */}
+
         </Paper>
       </div>
 

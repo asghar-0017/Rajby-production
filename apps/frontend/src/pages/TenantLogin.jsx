@@ -25,31 +25,7 @@ const TenantLogin = () => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
-
-  const renderSuspensionMessage = () => (
-    <Box
-      sx={{
-        p: 3,
-        bgcolor: 'rgba(237, 91, 42, 0.1)',
-        borderRadius: 2,
-        border: '1px solid #ED5B2A',
-        mt: 2
-      }}
-    >
-      <Typography
-        variant="body1"
-        align="center"
-        sx={{
-          color: "#d32f2f",
-          fontWeight: 600,
-          lineHeight: 1.6
-        }}
-      >
-        Due to non signing of agreement, the system is temporarily suspended. Please contact our legal department for services revocation.
-      </Typography>
-    </Box>
-  );
-
+  
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -109,9 +85,6 @@ const TenantLogin = () => {
           </Alert>
         )}
 
-        {renderSuspensionMessage()}
-
-        {/* 
         <Box component="form" onSubmit={handleSubmit}>
           <Stack spacing={3}>
             <TextField
@@ -170,7 +143,7 @@ const TenantLogin = () => {
             </Typography>
           </Stack>
         </Box>
-        */}
+
       </Paper>
       <Footer />
     </Box>
