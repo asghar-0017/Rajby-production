@@ -8,14 +8,15 @@ let rajbyTokenCache = {
  * Get fresh Rajby API token
  * Always calls login API first to get a fresh token (ignores provided tokens from frontend)
  * Uses cached token only if still valid (within 5 min buffer), otherwise calls login API
+ * @param {boolean} forceRefresh - Whether to bypass the cache and get a fresh token (default: false)
  * @returns {Promise<string>} The Rajby API token
  */
-export async function getRajbyToken() {
+export async function getRajbyToken(forceRefresh = false) {
   const axios = (await import("axios")).default;
 
-  // Return cached token if still valid (with 5 min buffer)
-  // Otherwise, always call login API to get fresh token
+  // Return cached token if still valid (with 5 min buffer) and not forced
   if (
+    !forceRefresh &&
     rajbyTokenCache.token &&
     rajbyTokenCache.expiresAt &&
     Date.now() < rajbyTokenCache.expiresAt - 300000
@@ -24,20 +25,24 @@ export async function getRajbyToken() {
     return rajbyTokenCache.token;
   }
 
-  // Cache expired or doesn't exist - always call login API to get fresh token
-  console.log("Rajby token cache expired or missing - calling login API to get fresh token");
+  // Cache expired or doesn't exist or forced - always call login API to get fresh token
+  if (forceRefresh) {
+    console.log("Rajby token refresh forced - calling login API to get fresh token");
+  } else {
+    console.log("Rajby token cache expired or missing - calling login API to get fresh token");
+  }
 
   const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
   const RAJBY_USERNAME = process.env.RAJBY_USERNAME || "innovative";
   const RAJBY_PASSWORD = process.env.RAJBY_PASSWORD || "K7#mP!vL9qW2xR$8";
-  
+
   console.log(`Fetching new Rajby token from ${RAJBY_API_BASE_URL}...`);
-  
+
   // Retry logic for network issues
   const maxRetries = 2;
   let lastError = null;
   let loginResponse = null;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
@@ -47,7 +52,7 @@ export async function getRajbyToken() {
         // Wait before retrying (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
       }
-      
+
       // Configure axios with proxy support if available
       const axiosConfig = {
         headers: {
@@ -74,18 +79,18 @@ export async function getRajbyToken() {
         },
         axiosConfig
       );
-      
+
       // If we get here, the request succeeded
       break;
     } catch (error) {
       lastError = error;
-      
+
       // If it's a timeout or connection error and we have retries left, retry
       if (
-        (error.code === 'ECONNABORTED' || 
-         error.code === 'ETIMEDOUT' || 
-         error.code === 'ECONNREFUSED' ||
-         error.message?.includes('timeout')) &&
+        (error.code === 'ECONNABORTED' ||
+          error.code === 'ETIMEDOUT' ||
+          error.code === 'ECONNREFUSED' ||
+          error.message?.includes('timeout')) &&
         attempt < maxRetries
       ) {
         // Only log retry attempts in development or if explicitly enabled
@@ -94,12 +99,12 @@ export async function getRajbyToken() {
         }
         continue;
       }
-      
+
       // If it's not a retryable error or we're out of retries, break
       break;
     }
   }
-  
+
   // If all retries failed, throw a user-friendly error
   if (!loginResponse) {
     if (
@@ -155,24 +160,24 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1) {
 
   const axios = (await import("axios")).default;
   const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
-  
+
   // Always call login API first to get fresh token
   let token;
   try {
-    console.log(`[Rajby API] Calling login API first to get token for DELETE operation`);
-    token = await getRajbyToken();
+    console.log(`[Rajby API] Calling login API first to get fresh token for DELETE operation`);
+    token = await getRajbyToken(true);
   } catch (tokenError) {
     console.error(`[Rajby API] Failed to get token:`, tokenError.message);
     throw new Error(`Failed to get Rajby token: ${tokenError.message}`);
   }
 
   const url = `${RAJBY_API_BASE_URL}/api/InvoicingApi/delete/${encodeURIComponent(companyInvoiceRefNo)}`;
-  
+
   console.log(`[Rajby API] DELETE Request URL: ${url}`);
   console.log(`[Rajby API] Using token: ${token ? token.substring(0, 20) + '...' : 'NO TOKEN'}`);
 
   let lastError;
-  
+
   // Retry logic for timeout errors
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
@@ -196,44 +201,44 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1) {
       return response.data;
     } catch (error) {
       lastError = error;
-      
+
       // Enhanced error logging
       if (error.response) {
         // The request was made and the server responded with a status code
         // that falls out of the range of 2xx
         console.error(`[Rajby API] DELETE Error Response Status: ${error.response.status}`);
         console.error(`[Rajby API] DELETE Error Response Data:`, JSON.stringify(error.response.data, null, 2));
-        
+
         const errorMessage = error.response.data?.message || error.message || 'Unknown error';
-        
+
         // Don't retry on client errors (4xx) except 408 (Request Timeout)
         if (error.response.status >= 400 && error.response.status < 500 && error.response.status !== 408) {
           throw new Error(`Rajby API DELETE failed: ${errorMessage}`);
         }
-        
+
         // Retry on server errors (5xx) or 408
         // if (attempt < retries && (error.response.status >= 500 || error.response.status === 408)) {
         //   console.log(`[Rajby API] Server error ${error.response.status}, will retry...`);
         //   continue;
         // }
-        
+
         throw new Error(`Rajby API DELETE failed: ${errorMessage}`);
       } else if (error.request) {
         // The request was made but no response was received
         console.error(`[Rajby API] DELETE Error: No response received (Attempt ${attempt + 1}/${retries + 1})`);
-        
+
         // Check if it's a timeout error
         const isTimeout = error.code === 'ECONNABORTED' || error.message.includes('timeout');
-        
+
         if (isTimeout && attempt < retries) {
           console.log(`[Rajby API] Timeout error, will retry...`);
           continue;
         }
-        
+
         if (isTimeout) {
           throw new Error(`Rajby API DELETE failed: Request timeout after ${retries + 1} attempt(s). The server may be slow or unreachable.`);
         }
-        
+
         throw new Error(`Rajby API DELETE failed: No response received from server`);
       } else {
         // Something happened in setting up the request that triggered an Error
@@ -242,7 +247,7 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1) {
       }
     }
   }
-  
+
   // If we get here, all retries failed
   throw lastError;
 }
@@ -263,23 +268,23 @@ export async function submitFBRReference({
   invoiceDate,
   invoiceDetails = [],
 }) {
- 
+
 
   const axios = (await import("axios")).default;
   const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
-  
+
   // Always call login API first to get fresh token
   let token;
   try {
-    console.log(`[Rajby API] Calling login API first to get token for FBR Reference operation`);
-    token = await getRajbyToken();
+    console.log(`[Rajby API] Calling login API first to get fresh token for FBR Reference operation`);
+    token = await getRajbyToken(true);
   } catch (tokenError) {
-    console.error(`[Rajby API] Failed to get token for FBR Reference:`, tokenError.message);
+    console.error(`[Rajby API] Failed to get fresh token for FBR Reference:`, tokenError.message);
     throw new Error(`Failed to get Rajby token: ${tokenError.message}`);
   }
 
   const url = `${RAJBY_API_BASE_URL}/api/InvoicingApi/fbr/reference`;
-  
+
   console.log(`[Rajby API] FBR Reference Request URL: ${url}`);
   console.log(`[Rajby API] FBR Reference Request - fbrInvoiceNumber: ${fbrInvoiceNumber}, companyInvoiceRefNo: ${companyInvoiceRefNo}`);
 
@@ -318,16 +323,16 @@ export async function submitFBRReference({
       // that falls out of the range of 2xx
       console.error(`[Rajby API] FBR Reference Error Response Status: ${error.response.status}`);
       console.error(`[Rajby API] FBR Reference Error Response Data:`, JSON.stringify(error.response.data, null, 2));
-      
+
       const errorMessage = error.response.data?.message || error.message || 'Unknown error';
-      
+
       // Handle "already submitted" as success (idempotent operation)
       // This prevents duplicate submissions and treats re-submission as success
       // Check for "already submitted" message regardless of status code (400, 500, etc.)
       const lowerErrorMessage = errorMessage.toLowerCase();
-      if (lowerErrorMessage.includes('already submitted') || 
-          lowerErrorMessage.includes('cannot reference again') ||
-          lowerErrorMessage.includes('already exists')) {
+      if (lowerErrorMessage.includes('already submitted') ||
+        lowerErrorMessage.includes('cannot reference again') ||
+        lowerErrorMessage.includes('already exists')) {
         console.log(`[Rajby API] Invoice already submitted to FBR - treating as success (idempotent)`);
         return {
           success: true,
@@ -335,19 +340,19 @@ export async function submitFBRReference({
           alreadySubmitted: true
         };
       }
-      
+
       throw new Error(`Rajby API FBR Reference failed: ${errorMessage} (Status: ${error.response.status})`);
     } else if (error.request) {
       // The request was made but no response was received
       console.error(`[Rajby API] FBR Reference Error: No response received`);
-      
+
       // Check if it's a timeout error
       const isTimeout = error.code === 'ECONNABORTED' || error.message.includes('timeout');
-      
+
       if (isTimeout) {
         throw new Error(`Rajby API FBR Reference failed: Request timeout. The server may be slow or unreachable.`);
       }
-      
+
       throw new Error(`Rajby API FBR Reference failed: No response received from server`);
     } else {
       // Something happened in setting up the request that triggered an Error

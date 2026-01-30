@@ -22,7 +22,7 @@ export const login = async (req, res) => {
     // Retry logic for network issues
     const maxRetries = 2;
     let lastError = null;
-    
+
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await axios.post(
@@ -54,13 +54,13 @@ export const login = async (req, res) => {
         });
       } catch (error) {
         lastError = error;
-        
+
         // If it's a timeout or connection error and we have retries left, retry
         if (
-          (error.code === 'ECONNABORTED' || 
-           error.code === 'ETIMEDOUT' || 
-           error.code === 'ECONNREFUSED' ||
-           error.message?.includes('timeout')) &&
+          (error.code === 'ECONNABORTED' ||
+            error.code === 'ETIMEDOUT' ||
+            error.code === 'ECONNREFUSED' ||
+            error.message?.includes('timeout')) &&
           attempt < maxRetries
         ) {
           // Only log retry attempts in development or if explicitly enabled
@@ -71,7 +71,7 @@ export const login = async (req, res) => {
           await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
           continue;
         }
-        
+
         // If it's not a retryable error or we're out of retries, break
         break;
       }
@@ -90,7 +90,7 @@ export const login = async (req, res) => {
       // Only log a concise warning, not the full stack trace
       const errorType = lastError?.code || 'timeout';
       console.warn(`⚠️  Rajby API unavailable (${errorType}): Cannot reach ${RAJBY_API_BASE_URL}. This is non-critical.`);
-      
+
       return res.status(503).json({
         success: false,
         message: "Rajby API is currently unavailable. Please try again later.",
@@ -101,7 +101,7 @@ export const login = async (req, res) => {
         },
       });
     }
-    
+
     // For other errors, log more details (but still concise)
     console.error(`Rajby login error: ${lastError?.message || lastError?.code || 'Unknown error'}`);
 
@@ -132,8 +132,8 @@ export const login = async (req, res) => {
 export const getBuyers = async (req, res) => {
   try {
     // Always call login API first to get fresh token
-    console.log(`[Rajby API] Calling login API first to get token for getBuyers operation`);
-    const token = await getRajbyToken();
+    console.log(`[Rajby API] Calling login API first to get fresh token for getBuyers operation`);
+    const token = await getRajbyToken(true);
 
     const response = await axios.get(
       `${RAJBY_API_BASE_URL}/api/Buyer/local-invoice-buyers`,
@@ -171,8 +171,8 @@ export const getBuyers = async (req, res) => {
 export const getProducts = async (req, res) => {
   try {
     // Always call login API first to get fresh token
-    console.log(`[Rajby API] Calling login API first to get token for getProducts operation`);
-    const token = await getRajbyToken();
+    console.log(`[Rajby API] Calling login API first to get fresh token for getProducts operation`);
+    const token = await getRajbyToken(true);
 
     const response = await axios.get(`${RAJBY_API_BASE_URL}/api/Item/all`, {
       headers: {
@@ -207,6 +207,19 @@ export const getProducts = async (req, res) => {
 export const deleteInvoice = async (req, res) => {
   try {
     const { companyInvoiceRefNo } = req.params;
+
+    // Always call login API first to get fresh token (as requested by user)
+    try {
+      console.log(`[Rajby API] Calling login API first to get fresh token for deleteInvoice operation`);
+      await getRajbyToken(true);
+    } catch (tokenError) {
+      console.error(`[Rajby API] Failed to get fresh Rajby token for deleteInvoice:`, tokenError.message);
+      return res.status(503).json({
+        success: false,
+        message: `Failed to authenticate with Rajby API: ${tokenError.message}`,
+        error: tokenError.message
+      });
+    }
 
     if (!companyInvoiceRefNo) {
       return res.status(400).json({

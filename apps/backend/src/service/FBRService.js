@@ -3,50 +3,50 @@ import axios from "axios";
 // FBR API base URL
 const FBR_BASE_URL = "https://gw.fbr.gov.pk";
 
-export const postData = async (
-  endpoint,
-  data,
-  environment = "production",
-  token = null
-) => {
-  if (!token) {
-    throw new Error(`No ${environment} token provided for FBR API calls`);
-  }
+// export const postData = async (
+//   endpoint,
+//   data,
+//   environment = "production",
+//   token = null
+// ) => {
+//   if (!token) {
+//     throw new Error(`No ${environment} token provided for FBR API calls`);
+//   }
 
-  const config = {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-  };
+//   const config = {
+//     headers: {
+//       Authorization: `Bearer ${token}`,
+//       "Content-Type": "application/json",
+//     },
+//   };
 
-  try {
-    const response = await axios.post(
-      `${FBR_BASE_URL}/${endpoint}`,
-      data,
-      config
-    );
+//   try {
+//     const response = await axios.post(
+//       `${FBR_BASE_URL}/${endpoint}`,
+//       data,
+//       config
+//     );
 
-    console.log("FBR API Response:", {
-      endpoint,
-      status: response.status,
-      data: response.data,
-      dataType: typeof response.data,
-      dataLength: response.data ? response.data.length : 0,
-      headers: response.headers,
-    });
+//     console.log("FBR API Response:", {
+//       endpoint,
+//       status: response.status,
+//       data: response.data,
+//       dataType: typeof response.data,
+//       dataLength: response.data ? response.data.length : 0,
+//       headers: response.headers,
+//     });
 
-    return response;
-  } catch (error) {
-    console.error("FBR API Error:", {
-      endpoint,
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data,
-    });
-    throw error;
-  }
-};
+//     return response;
+//   } catch (error) {
+//     console.error("FBR API Error:", {
+//       endpoint,
+//       message: error.message,
+//       status: error.response?.status,
+//       data: error.response?.data,
+//     });
+//     throw error;
+//   }
+// };
 
 export const fetchData = async (
   endpoint,
@@ -176,15 +176,18 @@ export const validateInvoiceData = async (
     },
   };
 
+  // Determine the correct endpoint based on environment
+  const endpoint = "di_data/v1/di/validateinvoicedata";
+
   try {
     const response = await axios.post(
-      `${FBR_BASE_URL}/di_data/v1/di/validateinvoicedata`,
+      `${FBR_BASE_URL}/${endpoint}`,
       invoiceData,
       config
     );
 
     console.log("FBR Invoice Validation API Response:", {
-      endpoint: "di_data/v1/di/validateinvoicedata",
+      endpoint,
       status: response.status,
       data: response.data,
     });
@@ -192,7 +195,7 @@ export const validateInvoiceData = async (
     return response.data;
   } catch (error) {
     console.error("FBR Invoice Validation API Error:", {
-      endpoint: "di_data/v1/di/validateinvoicedata",
+      endpoint,
       message: error.message,
       status: error.response?.status,
       data: error.response?.data,
@@ -218,15 +221,18 @@ export const submitInvoiceData = async (
     },
   };
 
+  // Determine the correct endpoint based on environment
+  const endpoint = "di_data/v1/di/postinvoicedata";
+
   try {
     const response = await axios.post(
-      `${FBR_BASE_URL}/pdi/v1/di_data/v1/di/postinvoicedata_sb`,
+      `${FBR_BASE_URL}/${endpoint}`,
       invoiceData,
       config
     );
 
     console.log("FBR Invoice Submission API Response:", {
-      endpoint: "pdi/v1/di_data/v1/di/postinvoicedata",
+      endpoint,
       status: response.status,
       data: response.data,
     });
@@ -234,7 +240,7 @@ export const submitInvoiceData = async (
     return response.data;
   } catch (error) {
     console.error("FBR Invoice Submission API Error:", {
-      endpoint: "pdi/v1/di_data/v1/di/postinvoicedata",
+      endpoint,
       message: error.message,
       status: error.response?.status,
       data: error.response?.data,

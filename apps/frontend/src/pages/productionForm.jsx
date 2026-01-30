@@ -223,14 +223,14 @@ export default function ProductionFoam() {
     const checkFbrStatus = async () => {
       try {
         setFbrRegistrationStatus(prev => ({ ...prev, loading: true, error: null }));
-        
+
         const currentDate = dayjs().format('YYYY-MM-DD');
         console.log(`Checking FBR status for NTN: ${buyer.buyerNTNCNIC}, Date: ${currentDate}`);
-        
+
         const result = await checkRegistrationStatusWithDate(buyer.buyerNTNCNIC, currentDate);
-        
+
         console.log("FBR API result:", result);
-        
+
         setFbrRegistrationStatus({
           loading: false,
           isActive: result.isActive,
@@ -258,16 +258,16 @@ export default function ProductionFoam() {
                 const totalAfterDiscount = calculatedTotalBeforeDiscount - discountAmount;
                 const taxWithheld = parseFloat(item.salesTaxWithheldAtSource || 0);
                 const calculatedTotal = Number((totalAfterDiscount + taxWithheld).toFixed(2));
-                
+
                 return {
                   ...item,
                   totalValues: calculatedTotal.toString(), // Update Total Values
                 };
               }
-              
+
               const valueSalesExcludingST = parseFloat(item.valueSalesExcludingST) || 0;
               const furtherTaxAmount = result.shouldApplyFurtherTax ? (valueSalesExcludingST * 0.04) : 0;
-              
+
               // Recalculate Total Values when Further Tax changes
               const calculatedTotalBeforeDiscount =
                 parseFloat(item.valueSalesExcludingST || 0) +
@@ -280,7 +280,7 @@ export default function ProductionFoam() {
               const totalAfterDiscount = calculatedTotalBeforeDiscount - discountAmount;
               const taxWithheld = parseFloat(item.salesTaxWithheldAtSource || 0);
               const calculatedTotal = Number((totalAfterDiscount + taxWithheld).toFixed(2));
-              
+
               return {
                 ...item,
                 furtherTax: furtherTaxAmount.toFixed(2), // Calculate 4% of Value Sales (Excluding ST)
@@ -324,13 +324,13 @@ export default function ProductionFoam() {
             const totalAfterDiscount = calculatedTotalBeforeDiscount - discountAmount;
             const taxWithheld = parseFloat(item.salesTaxWithheldAtSource || 0);
             const calculatedTotal = Number((totalAfterDiscount + taxWithheld).toFixed(2));
-            
+
             return {
               ...item,
               totalValues: calculatedTotal.toString(), // Update Total Values
             };
           }
-          
+
           // For non-manual further tax, don't recalculate - let user control it
           return item;
         })
@@ -348,7 +348,7 @@ export default function ProductionFoam() {
           if (!item.isFurtherTaxManual && fbrRegistrationStatus.shouldApplyFurtherTax) {
             const valueSalesExcludingST = parseFloat(item.valueSalesExcludingST) || 0;
             const furtherTaxAmount = valueSalesExcludingST * 0.04;
-            
+
             // Recalculate Total Values when Further Tax changes
             const calculatedTotalBeforeDiscount =
               parseFloat(item.valueSalesExcludingST || 0) +
@@ -361,14 +361,14 @@ export default function ProductionFoam() {
             const totalAfterDiscount = calculatedTotalBeforeDiscount - discountAmount;
             const taxWithheld = parseFloat(item.salesTaxWithheldAtSource || 0);
             const calculatedTotal = Number((totalAfterDiscount + taxWithheld).toFixed(2));
-            
+
             return {
               ...item,
               furtherTax: furtherTaxAmount.toFixed(2), // Calculate 4% of Value Sales (Excluding ST)
               totalValues: calculatedTotal.toString(), // Update Total Values
             };
           }
-          
+
           return item;
         })
       }));
@@ -751,37 +751,33 @@ export default function ProductionFoam() {
           },
           {
             field: "valueSalesExcludingST",
-            message: `Value Sales Excluding ST is required for item ${
-              index + 1
-            }`,
+            message: `Value Sales Excluding ST is required for item ${index + 1
+              }`,
           },
           ...(item.rate && item.rate.toLowerCase() === "exempt"
             ? [
-                {
-                  field: "sroScheduleNo",
-                  message: `SRO Schedule Number is required for exempt item ${
-                    index + 1
+              {
+                field: "sroScheduleNo",
+                message: `SRO Schedule Number is required for exempt item ${index + 1
                   }`,
-                },
-                {
-                  field: "sroItemSerialNo",
-                  message: `SRO Item Serial Number is required for exempt item ${
-                    index + 1
+              },
+              {
+                field: "sroItemSerialNo",
+                message: `SRO Item Serial Number is required for exempt item ${index + 1
                   }`,
-                },
-              ]
+              },
+            ]
             : []),
           ...(item.rate &&
-          item.rate.includes("/bill") &&
-          formData.scenarioId === "SN018"
+            item.rate.includes("/bill") &&
+            formData.scenarioId === "SN018"
             ? [
-                {
-                  field: "billOfLadingUoM",
-                  message: `Bill of lading UoM is required for Services FED in ST Mode with ${
-                    item.rate
+              {
+                field: "billOfLadingUoM",
+                message: `Bill of lading UoM is required for Services FED in ST Mode with ${item.rate
                   } rate for item ${index + 1}`,
-                },
-              ]
+              },
+            ]
             : []),
         ];
 
@@ -913,11 +909,11 @@ export default function ProductionFoam() {
             cleanedData
           );
           console.log("Post Invoice Response:", postRes);
-          
+
           // Extract response data from backend response
           const responseData = postRes.data?.data || postRes.data;
           const responseStatus = postRes.data?.status || postRes.status || 200;
-          
+
           // Handle different FBR response structures for post
           const hasPostValidationResponse =
             responseData && responseData.validationResponse;
@@ -1608,10 +1604,10 @@ export default function ProductionFoam() {
                 </Box>
               ) : fbrRegistrationStatus.isActive !== null ? (
                 <Box>
-                  <Box sx={{ 
-                    p: 1, 
-                    backgroundColor: fbrRegistrationStatus.isActive ? "#d4edda" : "#d1ecf1", 
-                    border: `1px solid ${fbrRegistrationStatus.isActive ? "#c3e6cb" : "#bee5eb"}`, 
+                  <Box sx={{
+                    p: 1,
+                    backgroundColor: fbrRegistrationStatus.isActive ? "#d4edda" : "#d1ecf1",
+                    border: `1px solid ${fbrRegistrationStatus.isActive ? "#c3e6cb" : "#bee5eb"}`,
                     borderRadius: 1,
                     mb: 1
                   }}>

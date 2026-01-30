@@ -515,9 +515,9 @@ export default function BasicTable() {
 
   const handleBulkUpload = async (invoicesData, options = {}) => {
     const {
-      onProgress = () => {},
-      onChunkComplete = () => {},
-      onError = () => {},
+      onProgress = () => { },
+      onChunkComplete = () => { },
+      onError = () => { },
       chunkSize = 1000,
     } = options;
 
@@ -759,10 +759,10 @@ export default function BasicTable() {
             }
           } catch (rajbyError) {
             console.error("Rajby API delete error:", rajbyError);
-            const errorMessage = rajbyError.response?.data?.message || 
-                                rajbyError.message || 
-                                "Failed to delete invoice from Rajby API";
-            
+            const errorMessage = rajbyError.response?.data?.message ||
+              rajbyError.message ||
+              "Failed to delete invoice from Rajby API";
+
             Swal.fire({
               icon: "error",
               title: "Rajby API Delete Failed",
@@ -957,7 +957,7 @@ export default function BasicTable() {
               ...invoiceData,
               invoiceDate: dayjs(invoiceData.invoiceDate).format("YYYY-MM-DD"),
               transctypeId: invoiceData.transctypeId,
-              scenarioId: invoiceData.scenarioId || "SN001", // Default scenario ID
+              // scenarioId: "SN001", // Default scenario ID
               items: cleanedItems,
             };
 
@@ -993,14 +993,14 @@ export default function BasicTable() {
               // Handle different error response structures
               if (hasValidationResponse) {
                 const validation = responseData.validationResponse;
-                
+
                 // Use validation error if available, otherwise use status message
                 if (validation?.error && validation.error.trim() !== "") {
                   errorMessage = validation.error;
                 } else if (validation?.status && validation.status !== "Valid") {
                   errorMessage = `Validation failed: ${validation.status}`;
                 }
-                
+
                 // Check for item-specific errors in invoiceStatuses
                 if (
                   validation?.invoiceStatuses &&
@@ -1236,7 +1236,7 @@ export default function BasicTable() {
       window.URL.revokeObjectURL(url);
 
       toast.success(`PDF generated with ${selectedInvoiceDetails.length} invoice(s)`);
-      
+
       // Clear selection after printing
       setSelectedInvoices(new Set());
       setSelectMode(false);
@@ -1276,7 +1276,7 @@ export default function BasicTable() {
       const selectedInvoiceDetails = filteredInvoices.filter((invoice) =>
         selectedInvoices.has(invoice._id || invoice.id)
       );
-      
+
 
       // Process each selected invoice
       const results = [];
@@ -1365,6 +1365,7 @@ export default function BasicTable() {
               ...invoiceData,
               invoiceDate: dayjs(invoiceData.invoiceDate).format("YYYY-MM-DD"),
               transctypeId: invoiceData.transctypeId,
+              // scenarioId: "SN001", // Default scenario ID
               items: cleanedItems,
             };
 
@@ -1562,13 +1563,12 @@ export default function BasicTable() {
             // STEP 3: Delete the saved invoice if it exists (to avoid duplicates)
             if (invoiceData.id) {
               try {
-                console.log(`Deleting saved invoice with ID: ${invoiceData.id} after successful submission`);
+                console.log(`Deleting saved invoice with ID: ${invoiceData.id} after successful submission (Internal only)`);
                 const deleteResponse = await api.delete(
-                  `/tenant/${selectedTenant.tenant_id}/invoices/${invoiceData.id}`,
+                  `/tenant/${selectedTenant.tenant_id}/invoices/${invoiceData.id}/internal`,
                   {
                     data: {
                       deletionReason: "Deleted after successful submission to FBR",
-                      isCleanupDeletion: true, // Mark as cleanup deletion to hide from audit logs
                     },
                   }
                 );
@@ -2294,7 +2294,7 @@ export default function BasicTable() {
             <TextField
               variant="outlined"
               size="small"
-                placeholder="Search by Invoice #, Company Invoice #, or Buyer NTN"
+              placeholder="Search by Invoice #, Company Invoice #, or Buyer NTN"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -2496,7 +2496,7 @@ export default function BasicTable() {
                           <Checkbox
                             checked={
                               selectedInvoices.size ===
-                                filteredInvoices.length &&
+                              filteredInvoices.length &&
                               filteredInvoices.length > 0
                             }
                             indeterminate={
@@ -2524,9 +2524,9 @@ export default function BasicTable() {
                           key={heading}
                           align={
                             heading === "S.No" ||
-                            heading === "Invoice Number" ||
-                            heading === "Company Invoice #" ||
-                            heading === "Invoice Date"
+                              heading === "Invoice Number" ||
+                              heading === "Company Invoice #" ||
+                              heading === "Invoice Date"
                               ? "left"
                               : "center"
                           }
@@ -2539,8 +2539,8 @@ export default function BasicTable() {
                               backgroundColor: "#f5f5f5",
                             } : {},
                           }}
-                          onClick={heading === "Company Invoice #" ? () => handleSort("companyInvoiceRefNo") : 
-                                  heading === "Invoice Date" ? () => handleSort("created_at") : undefined}
+                          onClick={heading === "Company Invoice #" ? () => handleSort("companyInvoiceRefNo") :
+                            heading === "Invoice Date" ? () => handleSort("created_at") : undefined}
                         >
                           <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                             {heading}
@@ -2569,20 +2569,20 @@ export default function BasicTable() {
                       const syncButtonColor = atlStatusError
                         ? "error"
                         : atlStatusForInvoice
-                        ? atlStatusForInvoice.isActive
-                          ? "success"
-                          : "warning"
-                        : "secondary";
+                          ? atlStatusForInvoice.isActive
+                            ? "success"
+                            : "warning"
+                          : "secondary";
                       const syncTooltip = atlLoading
                         ? "Syncing ATL status..."
                         : atlStatusError
-                        ? `ATL sync failed: ${atlStatusError}`
-                        : atlStatusForInvoice
-                        ? atlStatusForInvoice.isActive
-                          ? "Buyer ATL Active"
-                          : atlStatusForInvoice.message ||
-                            "Buyer is not ATL Active. Validation disabled."
-                        : "Sync ATL status with FBR";
+                          ? `ATL sync failed: ${atlStatusError}`
+                          : atlStatusForInvoice
+                            ? atlStatusForInvoice.isActive
+                              ? "Buyer ATL Active"
+                              : atlStatusForInvoice.message ||
+                              "Buyer is not ATL Active. Validation disabled."
+                            : "Sync ATL status with FBR";
 
                       return (
                         <TableRow
@@ -2594,299 +2594,299 @@ export default function BasicTable() {
                             },
                           }}
                         >
-                        {selectMode && (
-                          <TableCell
-                            align="center"
-                            sx={{
-                              width: 50,
-                            }}
-                          >
-                            <Checkbox
-                              checked={selectedInvoices.has(row._id || row.id)}
-                              onChange={() =>
-                                handleRowSelection(row._id || row.id)
-                              }
-                              size="small"
-                            />
-                          </TableCell>
-                        )}
-                        <TableCell
-                          component="th"
-                          scope="row"
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: 13,
-                            color: "#666",
-                          }}
-                        >
-                          {rowsPerPage === "All" ? index + 1 : (page - 1) * rowsPerPage + index + 1}
-                        </TableCell>
-                        <TableCell
-                          component="th"
-                          scope="row"
-                          sx={{
-                            fontWeight: 700,
-                            fontSize: 13,
-                          }}
-                        >
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 0.5,
-                            }}
-                          >
-                            {row.invoiceNumber}
-                            <Tooltip title="Copy Invoice Number">
-                              <Button
-                                variant="text"
-                                size="small"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(
-                                    row.invoiceNumber
-                                  );
-                                  toast.success(
-                                    `Invoice Number "${row.invoiceNumber}" copied to clipboard.`,
-                                    {
-                                      autoClose: 3000,
-                                      closeOnClick: false,
-                                      pauseOnHover: true,
-                                    }
-                                  );
-                                }}
-                                sx={{
-                                  minWidth: "24px",
-                                  width: "24px",
-                                  height: "24px",
-                                  p: 0,
-                                  color: "#607d8b",
-                                  "&:hover": {
-                                    color: "#1976d2",
-                                  },
-                                }}
-                              >
-                                <ContentCopyIcon fontSize="10px" />
-                              </Button>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
-                        <TableCell
-                          component="th"
-                          scope="row"
-                          sx={{ fontWeight: 500 }}
-                        >
-                          {row.companyInvoiceRefNo || "N/A"}
-                        </TableCell>
-                        <TableCell
-                          component="th"
-                          scope="row"
-                          sx={{ fontWeight: 500 }}
-                        >
-                          {formatDate(row.invoiceDate)}
-                        </TableCell>
-                        <TableCell align="center" sx={{ fontWeight: 500 }}>
-                          {row.invoiceType || "N/A"}
-                        </TableCell>
-                        <TableCell align="center">
-                          <Box
-                            sx={{
-                              fontWeight: 500,
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 1,
-                              justifyContent: "center",
-                            }}
-                          >
-                            <Box>{row.buyerBusinessName || "N/A"}</Box>
-                            <Tooltip
-                              title={getStatusText(row.status)}
-                              placement="top"
-                              arrow
+                          {selectMode && (
+                            <TableCell
+                              align="center"
+                              sx={{
+                                width: 50,
+                              }}
                             >
-                              <Box
-                                component="span"
-                                bgcolor={getStatusColor(row.status)}
-                                sx={{
-                                  width: "10px",
-                                  height: "10px",
-                                  borderRadius: "50%",
-                                  display: "inline-block",
-                                }}
-                              ></Box>
-                            </Tooltip>
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center">
-                          <Box sx={{ fontWeight: 500 }}>
-                            {row.buyerNTNCNIC || "N/A"}
-                          </Box>
-                        </TableCell>
-                        <TableCell align="center">
-                          {row.items && row.items.length > 0
-                            ? row.items
-                                .map((item) => item.productDescription || "N/A")
-                                .join(", ")
-                            : "N/A"}
-                        </TableCell>
-                        {isAdmin && (
-                          <TableCell align="center" sx={{ fontWeight: 500 }}>
-                            {row.created_by_name
-                              ? `${row.created_by_name} (${row.created_by_user_id || ""})`
-                              : row.created_by_email || "-"}
-                          </TableCell>
-                        )}
-                        <TableCell align="center">
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "center",
-                              gap: 1,
-                            }}
-                          >
-                            {/* Print button for all invoice statuses */}
-                            <Tooltip
-                              title={`Print ${row.status === "posted" ? "Invoice" : row.status === "draft" ? "Draft Invoice" : "Saved Invoice"}`}
-                            >
-                              <Button
-                                variant="outlined"
-                                color={
-                                  row.status === "posted" ? "success" : "info"
+                              <Checkbox
+                                checked={selectedInvoices.has(row._id || row.id)}
+                                onChange={() =>
+                                  handleRowSelection(row._id || row.id)
                                 }
                                 size="small"
-                                onClick={() => handleButtonClick(row)}
-                                sx={{
-                                  minWidth: "32px",
-                                  width: "32px",
-                                  height: "32px",
-                                  p: 0,
-                                  "&:hover": {
-                                    backgroundColor:
-                                      row.status === "posted"
-                                        ? "success.main"
-                                        : "info.main",
-                                    color:
-                                      row.status === "posted"
-                                        ? "success.contrastText"
-                                        : "info.contrastText",
-                                    borderColor:
-                                      row.status === "posted"
-                                        ? "success.main"
-                                        : "info.main",
-                                  },
-                                }}
+                              />
+                            </TableCell>
+                          )}
+                          <TableCell
+                            component="th"
+                            scope="row"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: 13,
+                              color: "#666",
+                            }}
+                          >
+                            {rowsPerPage === "All" ? index + 1 : (page - 1) * rowsPerPage + index + 1}
+                          </TableCell>
+                          <TableCell
+                            component="th"
+                            scope="row"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: 13,
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 0.5,
+                              }}
+                            >
+                              {row.invoiceNumber}
+                              <Tooltip title="Copy Invoice Number">
+                                <Button
+                                  variant="text"
+                                  size="small"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(
+                                      row.invoiceNumber
+                                    );
+                                    toast.success(
+                                      `Invoice Number "${row.invoiceNumber}" copied to clipboard.`,
+                                      {
+                                        autoClose: 3000,
+                                        closeOnClick: false,
+                                        pauseOnHover: true,
+                                      }
+                                    );
+                                  }}
+                                  sx={{
+                                    minWidth: "24px",
+                                    width: "24px",
+                                    height: "24px",
+                                    p: 0,
+                                    color: "#607d8b",
+                                    "&:hover": {
+                                      color: "#1976d2",
+                                    },
+                                  }}
+                                >
+                                  <ContentCopyIcon fontSize="10px" />
+                                </Button>
+                              </Tooltip>
+                            </Box>
+                          </TableCell>
+                          <TableCell
+                            component="th"
+                            scope="row"
+                            sx={{ fontWeight: 500 }}
+                          >
+                            {row.companyInvoiceRefNo || "N/A"}
+                          </TableCell>
+                          <TableCell
+                            component="th"
+                            scope="row"
+                            sx={{ fontWeight: 500 }}
+                          >
+                            {formatDate(row.invoiceDate)}
+                          </TableCell>
+                          <TableCell align="center" sx={{ fontWeight: 500 }}>
+                            {row.invoiceType || "N/A"}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Box
+                              sx={{
+                                fontWeight: 500,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 1,
+                                justifyContent: "center",
+                              }}
+                            >
+                              <Box>{row.buyerBusinessName || "N/A"}</Box>
+                              <Tooltip
+                                title={getStatusText(row.status)}
+                                placement="top"
+                                arrow
                               >
-                                <PrintIcon fontSize="small" />
-                              </Button>
-                            </Tooltip>
-                            <Tooltip title="View Invoice Details">
-                              <Button
-                                variant="outlined"
-                                color="primary"
-                                size="small"
-                                onClick={() => handleViewInvoice(row)}
-                                sx={{
-                                  minWidth: "32px",
-                                  width: "32px",
-                                  height: "32px",
-                                  p: 0,
-                                  "&:hover": {
-                                    backgroundColor: "primary.main",
-                                    color: "primary.contrastText",
-                                    borderColor: "primary.main",
-                                  },
-                                }}
+                                <Box
+                                  component="span"
+                                  bgcolor={getStatusColor(row.status)}
+                                  sx={{
+                                    width: "10px",
+                                    height: "10px",
+                                    borderRadius: "50%",
+                                    display: "inline-block",
+                                  }}
+                                ></Box>
+                              </Tooltip>
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Box sx={{ fontWeight: 500 }}>
+                              {row.buyerNTNCNIC || "N/A"}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="center">
+                            {row.items && row.items.length > 0
+                              ? row.items
+                                .map((item) => item.productDescription || "N/A")
+                                .join(", ")
+                              : "N/A"}
+                          </TableCell>
+                          {isAdmin && (
+                            <TableCell align="center" sx={{ fontWeight: 500 }}>
+                              {row.created_by_name
+                                ? `${row.created_by_name} (${row.created_by_user_id || ""})`
+                                : row.created_by_email || "-"}
+                            </TableCell>
+                          )}
+                          <TableCell align="center">
+                            <Box
+                              sx={{
+                                display: "flex",
+                                justifyContent: "center",
+                                gap: 1,
+                              }}
+                            >
+                              {/* Print button for all invoice statuses */}
+                              <Tooltip
+                                title={`Print ${row.status === "posted" ? "Invoice" : row.status === "draft" ? "Draft Invoice" : "Saved Invoice"}`}
                               >
-                                <VisibilityIcon fontSize="small" />
-                              </Button>
-                            </Tooltip>
-                            {(row.status === "draft" ||
-                              row.status === "saved") && (
-                              <>
-                                <PermissionGate permission="invoice_validate">
-                                  <Tooltip
-                                    title={syncTooltip}
-                                    placement="top"
-                                    arrow
-                                  >
-                                    <span>
-                                      <Button
-                                        variant="outlined"
-                                        color={syncButtonColor}
-                                        size="small"
-                                        onClick={() => handleSyncAtlStatus(row)}
-                                        disabled={atlLoading}
-                                        sx={{
-                                          minWidth: "32px",
-                                          width: "32px",
-                                          height: "32px",
-                                          p: 0,
-                                        }}
+                                <Button
+                                  variant="outlined"
+                                  color={
+                                    row.status === "posted" ? "success" : "info"
+                                  }
+                                  size="small"
+                                  onClick={() => handleButtonClick(row)}
+                                  sx={{
+                                    minWidth: "32px",
+                                    width: "32px",
+                                    height: "32px",
+                                    p: 0,
+                                    "&:hover": {
+                                      backgroundColor:
+                                        row.status === "posted"
+                                          ? "success.main"
+                                          : "info.main",
+                                      color:
+                                        row.status === "posted"
+                                          ? "success.contrastText"
+                                          : "info.contrastText",
+                                      borderColor:
+                                        row.status === "posted"
+                                          ? "success.main"
+                                          : "info.main",
+                                    },
+                                  }}
+                                >
+                                  <PrintIcon fontSize="small" />
+                                </Button>
+                              </Tooltip>
+                              <Tooltip title="View Invoice Details">
+                                <Button
+                                  variant="outlined"
+                                  color="primary"
+                                  size="small"
+                                  onClick={() => handleViewInvoice(row)}
+                                  sx={{
+                                    minWidth: "32px",
+                                    width: "32px",
+                                    height: "32px",
+                                    p: 0,
+                                    "&:hover": {
+                                      backgroundColor: "primary.main",
+                                      color: "primary.contrastText",
+                                      borderColor: "primary.main",
+                                    },
+                                  }}
+                                >
+                                  <VisibilityIcon fontSize="small" />
+                                </Button>
+                              </Tooltip>
+                              {(row.status === "draft" ||
+                                row.status === "saved") && (
+                                  <>
+                                    <PermissionGate permission="invoice_validate">
+                                      <Tooltip
+                                        title={syncTooltip}
+                                        placement="top"
+                                        arrow
                                       >
-                                        {atlLoading ? (
-                                          <CircularProgress
-                                            size={16}
-                                            color="inherit"
-                                          />
-                                        ) : (
-                                          <SyncIcon fontSize="small" />
-                                        )}
-                                      </Button>
-                                    </span>
-                                  </Tooltip>
-                                </PermissionGate>
-                                <PermissionGate permission="invoice.update">
-                                  <Tooltip
-                                    title={`Edit ${row.status === "draft" ? "Draft" : "Saved"} Invoice`}
-                                  >
-                                    <Button
-                                      variant="outlined"
-                                      color="warning"
-                                      size="small"
-                                      onClick={() => handleEditInvoice(row)}
-                                      sx={{
-                                        minWidth: "32px",
-                                        width: "32px",
-                                        height: "32px",
-                                        p: 0,
-                                        "&:hover": {
-                                          backgroundColor: "warning.main",
-                                          color: "warning.contrastText",
-                                          borderColor: "warning.main",
-                                        },
-                                      }}
-                                    >
-                                      <EditIcon fontSize="small" />
-                                    </Button>
-                                  </Tooltip>
-                                </PermissionGate>
-                                <PermissionGate permission="invoice.delete">
-                                  <Tooltip title="Delete Invoice">
-                                    <Button
-                                      variant="outlined"
-                                      color="error"
-                                      size="small"
-                                      onClick={() => handleDeleteClick(row)}
-                                      sx={{
-                                        minWidth: "32px",
-                                        width: "32px",
-                                        height: "32px",
-                                        p: 0,
-                                        "&:hover": {
-                                          backgroundColor: "error.main",
-                                          color: "error.contrastText",
-                                          borderColor: "error.main",
-                                        },
-                                      }}
-                                    >
-                                      <DeleteIcon fontSize="small" />
-                                    </Button>
-                                  </Tooltip>
-                                </PermissionGate>
-                              </>
-                            )}
-                          </Box>
-                        </TableCell>
-                      </TableRow>
+                                        <span>
+                                          <Button
+                                            variant="outlined"
+                                            color={syncButtonColor}
+                                            size="small"
+                                            onClick={() => handleSyncAtlStatus(row)}
+                                            disabled={atlLoading}
+                                            sx={{
+                                              minWidth: "32px",
+                                              width: "32px",
+                                              height: "32px",
+                                              p: 0,
+                                            }}
+                                          >
+                                            {atlLoading ? (
+                                              <CircularProgress
+                                                size={16}
+                                                color="inherit"
+                                              />
+                                            ) : (
+                                              <SyncIcon fontSize="small" />
+                                            )}
+                                          </Button>
+                                        </span>
+                                      </Tooltip>
+                                    </PermissionGate>
+                                    <PermissionGate permission="invoice.update">
+                                      <Tooltip
+                                        title={`Edit ${row.status === "draft" ? "Draft" : "Saved"} Invoice`}
+                                      >
+                                        <Button
+                                          variant="outlined"
+                                          color="warning"
+                                          size="small"
+                                          onClick={() => handleEditInvoice(row)}
+                                          sx={{
+                                            minWidth: "32px",
+                                            width: "32px",
+                                            height: "32px",
+                                            p: 0,
+                                            "&:hover": {
+                                              backgroundColor: "warning.main",
+                                              color: "warning.contrastText",
+                                              borderColor: "warning.main",
+                                            },
+                                          }}
+                                        >
+                                          <EditIcon fontSize="small" />
+                                        </Button>
+                                      </Tooltip>
+                                    </PermissionGate>
+                                    <PermissionGate permission="invoice.delete">
+                                      <Tooltip title="Delete Invoice">
+                                        <Button
+                                          variant="outlined"
+                                          color="error"
+                                          size="small"
+                                          onClick={() => handleDeleteClick(row)}
+                                          sx={{
+                                            minWidth: "32px",
+                                            width: "32px",
+                                            height: "32px",
+                                            p: 0,
+                                            "&:hover": {
+                                              backgroundColor: "error.main",
+                                              color: "error.contrastText",
+                                              borderColor: "error.main",
+                                            },
+                                          }}
+                                        >
+                                          <DeleteIcon fontSize="small" />
+                                        </Button>
+                                      </Tooltip>
+                                    </PermissionGate>
+                                  </>
+                                )}
+                            </Box>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
                   </TableBody>
@@ -2902,7 +2902,7 @@ export default function BasicTable() {
                 }}
               >
                 <Typography variant="body2" color="text.secondary">
-                  {rowsPerPage === "All" 
+                  {rowsPerPage === "All"
                     ? `Showing all ${totalRecords} invoices`
                     : `Showing ${(page - 1) * rowsPerPage + 1} to ${Math.min(page * rowsPerPage, totalRecords)} of ${totalRecords} invoices`
                   }

@@ -23,7 +23,7 @@ import Tenant from "../../model/mysql/Tenant.js";
 import hsCodeCacheService from "../../service/HSCodeCacheService.js";
 import { logAuditEvent } from "../../middleWare/auditMiddleware.js";
 import InvoiceBackupService from "../../service/InvoiceBackupService.js";
-import { deleteRajbyInvoice, submitFBRReference } from "../../service/RajbyService.js";
+import { getRajbyToken, deleteRajbyInvoice, submitFBRReference } from "../../service/RajbyService.js";
 
 const { toWords } = numberToWords;
 
@@ -130,7 +130,20 @@ export const createInvoice = async (req, res) => {
   try {
     const { Invoice, InvoiceItem, Buyer } = req.tenantModels;
 
-    const {
+    // Always call login API first to get fresh token (as requested by user)
+    // This ensures that even if subsequent checks fail, the token is refreshed first
+    try {
+      console.log(`[Invoice Create] Calling Rajby login API first to get fresh token`);
+      await getRajbyToken(true);
+    } catch (tokenError) {
+      console.error(`[Invoice Create] Failed to get fresh Rajby token:`, tokenError.message);
+      // We log but continue, as the final Rajby reference call might handle it or fail gracefully
+      // Actually, if it's a critical prerequisite, we can return early, but createInvoice 
+      // primarily deals with FBR, and Rajby reference is a follow-up.
+      // However, the user wants it FIRST.
+    }
+
+    let {
       invoice_number,
 
       invoiceType,
@@ -187,7 +200,7 @@ export const createInvoice = async (req, res) => {
       hasValidationResponse: !!validationResponse,
       validationResponseKeys: validationResponse ? Object.keys(validationResponse) : [],
     });
-    
+
     if (!fbr_detail_no && validationResponse) {
       const invoiceStatuses = validationResponse?.invoiceStatuses || [];
       console.log("🔍 Debug - validationResponse invoiceStatuses:", {
@@ -195,20 +208,20 @@ export const createInvoice = async (req, res) => {
         length: invoiceStatuses.length,
         firstItem: invoiceStatuses[0],
       });
-      
+
       if (Array.isArray(invoiceStatuses) && invoiceStatuses.length > 0) {
         // Extract invoiceNo values from invoiceStatuses (same as single invoice)
         // If single item, return string; if multiple, return array
         const invoiceNos = invoiceStatuses
           .map(status => status?.invoiceNo)
           .filter(invoiceNo => invoiceNo); // Remove null/undefined/empty values
-        
+
         if (invoiceNos.length === 1) {
           fbr_detail_no = invoiceNos[0]; // Single value as string
         } else if (invoiceNos.length > 1) {
           fbr_detail_no = invoiceNos; // Multiple values as array
         }
-        
+
         console.log("🔍 Debug - Extracted fbr_detail_no:", {
           fbrDetailNo: fbr_detail_no,
           isArray: Array.isArray(fbr_detail_no),
@@ -216,7 +229,7 @@ export const createInvoice = async (req, res) => {
         });
       }
     }
-    
+
     // Also check if validationResponse is nested in req.body (alternative structure)
     if (!fbr_detail_no && req.body.validationResponse) {
       const validation = req.body.validationResponse;
@@ -226,18 +239,18 @@ export const createInvoice = async (req, res) => {
         length: invoiceStatuses.length,
         firstItem: invoiceStatuses[0],
       });
-      
+
       if (Array.isArray(invoiceStatuses) && invoiceStatuses.length > 0) {
         const invoiceNos = invoiceStatuses
           .map(status => status?.invoiceNo)
           .filter(invoiceNo => invoiceNo);
-        
+
         if (invoiceNos.length === 1) {
           fbr_detail_no = invoiceNos[0];
         } else if (invoiceNos.length > 1) {
           fbr_detail_no = invoiceNos;
         }
-        
+
         console.log("🔍 Debug - Extracted fbr_detail_no from alternative path:", {
           fbrDetailNo: fbr_detail_no,
           isArray: Array.isArray(fbr_detail_no),
@@ -472,7 +485,7 @@ export const createInvoice = async (req, res) => {
       // Create invoice items if provided
 
       if (items && Array.isArray(items) && items.length > 0) {
-        const invoiceItems = items.map((item) => {
+        const invoiceItems = items.map((item, index) => {
           // Debug: Log the incoming item data
           console.log("🔍 Backend Debug: Incoming item data:", {
             productName: item.productName,
@@ -526,16 +539,15 @@ export const createInvoice = async (req, res) => {
             return hsCode.substring(0, 50);
           };
 
-         
-      
+
+
 
           const mappedItem = {
             invoice_id: invoice.id,
 
-            InvoiceItemId:
-              item.InvoiceItemId === undefined
-                ? null
-                : cleanValue(item.InvoiceItemId),
+            InvoiceItemId: Array.isArray(fbr_detail_no)
+              ? fbr_detail_no[index]
+              : (fbr_detail_no || cleanValue(item.InvoiceItemId)),
 
             InvoiceDetId: cleanValue(item.InvoiceDetId),
 
@@ -687,7 +699,7 @@ export const createInvoice = async (req, res) => {
     // Log audit event for invoice creation
     // If invoice is created with "posted" status, log as SUBMIT_TO_FBR instead of CREATE
     const auditOperation = result.status === "posted" ? "SUBMIT_TO_FBR" : "CREATE";
-    
+
     await logAuditEvent(
       req,
       "invoice",
@@ -729,30 +741,30 @@ export const createInvoice = async (req, res) => {
         // Complete Invoice Items with All Details
         invoice_items: items
           ? items.map((item) => ({
-              id: item.id,
-              product_name: item.name,
-              hsCode: item.hsCode,
-              productDescription: item.productDescription,
-              quantity: item.quantity,
-              rate: item.rate,
-              uoM: item.uoM,
-              unitPrice: item.unitPrice,
-              totalValues: item.totalValues,
-              valueSalesExcludingST: item.valueSalesExcludingST,
-              fixedNotifiedValueOrRetailPrice:
-                item.fixedNotifiedValueOrRetailPrice,
-              salesTaxApplicable: item.salesTaxApplicable,
-              salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
-              extraTax: item.extraTax,
-              furtherTax: item.furtherTax,
-              sroScheduleNo: item.sroScheduleNo,
-              fedPayable: item.fedPayable,
-              advanceIncomeTax: item.advanceIncomeTax,
-              discount: item.discount,
-              saleType: item.saleType,
-              sroItemSerialNo: item.sroItemSerialNo,
-              billOfLadingUoM: item.billOfLadingUoM,
-            }))
+            id: item.id,
+            product_name: item.name,
+            hsCode: item.hsCode,
+            productDescription: item.productDescription,
+            quantity: item.quantity,
+            rate: item.rate,
+            uoM: item.uoM,
+            unitPrice: item.unitPrice,
+            totalValues: item.totalValues,
+            valueSalesExcludingST: item.valueSalesExcludingST,
+            fixedNotifiedValueOrRetailPrice:
+              item.fixedNotifiedValueOrRetailPrice,
+            salesTaxApplicable: item.salesTaxApplicable,
+            salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
+            extraTax: item.extraTax,
+            furtherTax: item.furtherTax,
+            sroScheduleNo: item.sroScheduleNo,
+            fedPayable: item.fedPayable,
+            advanceIncomeTax: item.advanceIncomeTax,
+            discount: item.discount,
+            saleType: item.saleType,
+            sroItemSerialNo: item.sroItemSerialNo,
+            billOfLadingUoM: item.billOfLadingUoM,
+          }))
           : [],
       }, // newValues
       {
@@ -769,7 +781,7 @@ export const createInvoice = async (req, res) => {
       fbr_detail_no: fbr_detail_no,
       allConditionsMet: !!(result.companyInvoiceRefNo && fbr_invoice_number && fbr_detail_no)
     });
-    
+
     if (result.companyInvoiceRefNo && fbr_invoice_number && fbr_detail_no) {
       try {
         console.log("✅ All conditions met, calling Rajby FBR Reference API...");
@@ -779,17 +791,17 @@ export const createInvoice = async (req, res) => {
           attributes: ['id', 'InvoiceItemId', 'InvoiceDetId'],
           order: [['id', 'ASC']],
         });
-        
+
         console.log("🔍 Rajby API Debug - Invoice items found:", invoiceItemsForRajby.length);
 
         // Prepare invoiceDetails array
         const invoiceDetails = [];
         if (invoiceItemsForRajby.length > 0) {
           // Handle fbr_detail_no: can be a string (single value) or array
-          const fbrDetailNoArray = Array.isArray(fbr_detail_no) 
-            ? fbr_detail_no 
-            : fbr_detail_no 
-              ? [fbr_detail_no] 
+          const fbrDetailNoArray = Array.isArray(fbr_detail_no)
+            ? fbr_detail_no
+            : fbr_detail_no
+              ? [fbr_detail_no]
               : [];
 
           invoiceItemsForRajby.forEach((item, index) => {
@@ -797,7 +809,7 @@ export const createInvoice = async (req, res) => {
             const detInvNo = item.InvoiceDetId
             // Use corresponding fbrDetailNo if array, otherwise use the first/only value
             const fbrNo = fbrDetailNoArray[index] || fbrDetailNoArray[0] || null;
-            
+
             console.log(`🔍 Rajby API Debug - Item ${index}:`, {
               detInvNo,
               fbrNo,
@@ -805,7 +817,7 @@ export const createInvoice = async (req, res) => {
               InvoiceItemId: item.InvoiceItemId,
               id: item.id
             });
-            
+
             if (detInvNo && fbrNo) {
               invoiceDetails.push({
                 detInvNo: detInvNo,
@@ -813,15 +825,15 @@ export const createInvoice = async (req, res) => {
               });
             }
           });
-          
+
           console.log("🔍 Rajby API Debug - Prepared invoiceDetails:", invoiceDetails);
         }
 
         // Call Rajby FBR Reference API
-        const invoiceDateFormatted = result.invoiceDate 
-          ? (result.invoiceDate instanceof Date 
-              ? result.invoiceDate.toISOString().split('T')[0]
-              : new Date(result.invoiceDate).toISOString().split('T')[0])
+        const invoiceDateFormatted = result.invoiceDate
+          ? (result.invoiceDate instanceof Date
+            ? result.invoiceDate.toISOString().split('T')[0]
+            : new Date(result.invoiceDate).toISOString().split('T')[0])
           : null;
 
         if (!invoiceDateFormatted) {
@@ -835,7 +847,7 @@ export const createInvoice = async (req, res) => {
             invoiceDate: invoiceDateFormatted,
             invoiceDetailsCount: invoiceDetails.length
           });
-          
+
           const { submitFBRReference } = await import("../../service/RajbyService.js");
           const rajbyReferenceResult = await submitFBRReference({
             fbrInvoiceNumber: fbr_invoice_number,
@@ -1003,7 +1015,7 @@ const checkBuyerRegistrationType = async (registrationNo) => {
       await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
     }
   }
-  
+
   return "Unregistered";
 };
 
@@ -1169,7 +1181,7 @@ export const saveInvoice = async (req, res) => {
           transaction: t,
         });
 
-        console.log(`[saveInvoice] Fetched ${existingItems.length} existing items for invoice ${invoice.id}:`, 
+        console.log(`[saveInvoice] Fetched ${existingItems.length} existing items for invoice ${invoice.id}:`,
           existingItems.map(ei => ({ id: ei.id, InvoiceDetId: ei.InvoiceDetId, InvoiceItemId: ei.InvoiceItemId })));
 
         // Replace items
@@ -1300,16 +1312,16 @@ export const saveInvoice = async (req, res) => {
           const resolveInvoiceDetId = (item) =>
             cleanValue(
               item?.InvoiceDetId ??
-                item?.lineItemInvoiceNumber ??
-                item?.["InvoiceDetId "] ?? // common payload typo with trailing space
-                item?.invoiceDetId ??
-                item?.invoice_det_id
+              item?.lineItemInvoiceNumber ??
+              item?.["InvoiceDetId "] ?? // common payload typo with trailing space
+              item?.invoiceDetId ??
+              item?.invoice_det_id
             );
 
           // Preserve InvoiceDetId from existing items if updating
           let preservedInvoiceDetId = null;
           let preservedInvoiceItemId = null;
-          
+
           if (id && existingItems && existingItems.length > 0) {
             // Try to match by database id first
             const itemDbId = item.id && typeof item.id === 'number' && item.id < 1000000 ? item.id : null;
@@ -1320,7 +1332,7 @@ export const saveInvoice = async (req, res) => {
                 preservedInvoiceItemId = existingItem.InvoiceItemId;
               }
             }
-            
+
             // If no match by id, try to match by index (position-based matching)
             if (!preservedInvoiceDetId && index < existingItems.length) {
               preservedInvoiceDetId = existingItems[index].InvoiceDetId;
@@ -1485,30 +1497,30 @@ export const saveInvoice = async (req, res) => {
         // Complete Invoice Items with All Details
         invoice_items: items
           ? items.map((item) => ({
-              id: item.id,
-              product_name: item.name,
-              hsCode: item.hsCode,
-              productDescription: item.productDescription,
-              quantity: item.quantity,
-              rate: item.rate,
-              uoM: item.uoM,
-              unitPrice: item.unitPrice,
-              totalValues: item.totalValues,
-              valueSalesExcludingST: item.valueSalesExcludingST,
-              fixedNotifiedValueOrRetailPrice:
-                item.fixedNotifiedValueOrRetailPrice,
-              salesTaxApplicable: item.salesTaxApplicable,
-              salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
-              extraTax: item.extraTax,
-              furtherTax: item.furtherTax,
-              sroScheduleNo: item.sroScheduleNo,
-              fedPayable: item.fedPayable,
-              advanceIncomeTax: item.advanceIncomeTax,
-              discount: item.discount,
-              saleType: item.saleType,
-              sroItemSerialNo: item.sroItemSerialNo,
-              billOfLadingUoM: item.billOfLadingUoM,
-            }))
+            id: item.id,
+            product_name: item.name,
+            hsCode: item.hsCode,
+            productDescription: item.productDescription,
+            quantity: item.quantity,
+            rate: item.rate,
+            uoM: item.uoM,
+            unitPrice: item.unitPrice,
+            totalValues: item.totalValues,
+            valueSalesExcludingST: item.valueSalesExcludingST,
+            fixedNotifiedValueOrRetailPrice:
+              item.fixedNotifiedValueOrRetailPrice,
+            salesTaxApplicable: item.salesTaxApplicable,
+            salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
+            extraTax: item.extraTax,
+            furtherTax: item.furtherTax,
+            sroScheduleNo: item.sroScheduleNo,
+            fedPayable: item.fedPayable,
+            advanceIncomeTax: item.advanceIncomeTax,
+            discount: item.discount,
+            saleType: item.saleType,
+            sroItemSerialNo: item.sroItemSerialNo,
+            billOfLadingUoM: item.billOfLadingUoM,
+          }))
           : [],
       }, // newValues
       {
@@ -1871,7 +1883,7 @@ export const saveAndValidateInvoice = async (req, res) => {
           transaction: t,
         });
 
-        console.log(`[saveAndValidateInvoice] Fetched ${existingItems.length} existing items for invoice ${invoice.id}:`, 
+        console.log(`[saveAndValidateInvoice] Fetched ${existingItems.length} existing items for invoice ${invoice.id}:`,
           existingItems.map(ei => ({ id: ei.id, InvoiceDetId: ei.InvoiceDetId, InvoiceItemId: ei.InvoiceItemId })));
 
         await InvoiceItem.destroy({
@@ -1990,16 +2002,16 @@ export const saveAndValidateInvoice = async (req, res) => {
           const resolveInvoiceDetId = (item) =>
             cleanValue(
               item?.InvoiceDetId ??
-                item?.lineItemInvoiceNumber ??
-                item?.["InvoiceDetId "] ?? // common payload typo with trailing space
-                item?.invoiceDetId ??
-                item?.invoice_det_id
+              item?.lineItemInvoiceNumber ??
+              item?.["InvoiceDetId "] ?? // common payload typo with trailing space
+              item?.invoiceDetId ??
+              item?.invoice_det_id
             );
 
           // Preserve InvoiceDetId from existing items if updating
           let preservedInvoiceDetId = null;
           let preservedInvoiceItemId = null;
-          
+
           if (id && existingItems && existingItems.length > 0) {
             // Try to match by database id first
             const itemDbId = item.id && typeof item.id === 'number' && item.id < 1000000 ? item.id : null;
@@ -2015,7 +2027,7 @@ export const saveAndValidateInvoice = async (req, res) => {
             } else {
               console.log(`[saveAndValidateInvoice] ⚠️ Item id ${item.id} is not a valid database id (type: ${typeof item.id})`);
             }
-            
+
             // If no match by id, try to match by index (position-based matching)
             if (!preservedInvoiceDetId && index < existingItems.length) {
               preservedInvoiceDetId = existingItems[index].InvoiceDetId;
@@ -2181,30 +2193,30 @@ export const saveAndValidateInvoice = async (req, res) => {
         // Complete Invoice Items with All Details
         invoice_items: items
           ? items.map((item) => ({
-              id: item.id,
-              product_name: item.name,
-              hsCode: item.hsCode,
-              productDescription: item.productDescription,
-              quantity: item.quantity,
-              rate: item.rate,
-              uoM: item.uoM,
-              unitPrice: item.unitPrice,
-              totalValues: item.totalValues,
-              valueSalesExcludingST: item.valueSalesExcludingST,
-              fixedNotifiedValueOrRetailPrice:
-                item.fixedNotifiedValueOrRetailPrice,
-              salesTaxApplicable: item.salesTaxApplicable,
-              salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
-              extraTax: item.extraTax,
-              furtherTax: item.furtherTax,
-              sroScheduleNo: item.sroScheduleNo,
-              fedPayable: item.fedPayable,
-              advanceIncomeTax: item.advanceIncomeTax,
-              discount: item.discount,
-              saleType: item.saleType,
-              sroItemSerialNo: item.sroItemSerialNo,
-              billOfLadingUoM: item.billOfLadingUoM,
-            }))
+            id: item.id,
+            product_name: item.name,
+            hsCode: item.hsCode,
+            productDescription: item.productDescription,
+            quantity: item.quantity,
+            rate: item.rate,
+            uoM: item.uoM,
+            unitPrice: item.unitPrice,
+            totalValues: item.totalValues,
+            valueSalesExcludingST: item.valueSalesExcludingST,
+            fixedNotifiedValueOrRetailPrice:
+              item.fixedNotifiedValueOrRetailPrice,
+            salesTaxApplicable: item.salesTaxApplicable,
+            salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
+            extraTax: item.extraTax,
+            furtherTax: item.furtherTax,
+            sroScheduleNo: item.sroScheduleNo,
+            fedPayable: item.fedPayable,
+            advanceIncomeTax: item.advanceIncomeTax,
+            discount: item.discount,
+            saleType: item.saleType,
+            sroItemSerialNo: item.sroItemSerialNo,
+            billOfLadingUoM: item.billOfLadingUoM,
+          }))
           : [],
       }, // newValues
       {
@@ -2233,13 +2245,13 @@ export const saveAndValidateInvoice = async (req, res) => {
         status: result.status,
         fbrValidation: fbrValidationResult
           ? {
-              success: true,
-              result: fbrValidationResult,
-            }
+            success: true,
+            result: fbrValidationResult,
+          }
           : {
-              success: false,
-              reason: "No FBR token or credentials available",
-            },
+            success: false,
+            reason: "No FBR token or credentials available",
+          },
       },
     });
   } catch (error) {
@@ -4044,8 +4056,8 @@ export const printInvoice = async (req, res) => {
         /\{\{item\.productName\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? plainInvoice.items[0].productDescription ||
-              plainInvoice.items[0].name ||
-              "N/A"
+          plainInvoice.items[0].name ||
+          "N/A"
           : "N/A"
       )
       .replace(
@@ -4068,25 +4080,25 @@ export const printInvoice = async (req, res) => {
         /\{\{item\.uom\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? plainInvoice.items[0].uoM ||
-              plainInvoice.items[0].billOfLadingUoM ||
-              "N/A"
+          plainInvoice.items[0].billOfLadingUoM ||
+          "N/A"
           : "N/A"
       )
       .replace(
         /\{\{item\.rate\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? plainInvoice.items[0].rate ||
-              plainInvoice.items[0].unitPrice ||
-              "N/A"
+          plainInvoice.items[0].unitPrice ||
+          "N/A"
           : "N/A"
       )
       .replace(
         /\{\{item\.amount\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? plainInvoice.items[0].valueSalesExcludingST ||
-              plainInvoice.items[0].totalValues ||
-              plainInvoice.items[0].total_amount ||
-              "N/A"
+          plainInvoice.items[0].totalValues ||
+          plainInvoice.items[0].total_amount ||
+          "N/A"
           : "N/A"
       )
       .replace(/<!-- Items will be populated dynamically -->/g, itemsTableRows)
@@ -4094,120 +4106,120 @@ export const printInvoice = async (req, res) => {
         /\{\{totalSalesTax\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? plainInvoice.items
-              .reduce((total, item) => {
-                const salesTax = parseFloat(item.salesTaxApplicable || 0);
-                return total + (isNaN(salesTax) ? 0 : salesTax);
-              }, 0)
-              .toLocaleString()
+            .reduce((total, item) => {
+              const salesTax = parseFloat(item.salesTaxApplicable || 0);
+              return total + (isNaN(salesTax) ? 0 : salesTax);
+            }, 0)
+            .toLocaleString()
           : "0"
       )
       .replace(
         /\{\{salesTaxRate\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? (() => {
-              // Get the rate from the first item, or default to 18%
-              const firstItem = plainInvoice.items[0];
-              if (firstItem.rate) {
-                // Extract percentage from rate string (e.g., "18%" -> "18")
-                const rateMatch = firstItem.rate
-                  .toString()
-                  .match(/(\d+(?:\.\d+)?)/);
-                return rateMatch ? rateMatch[1] : "18";
-              }
-              return "18"; // Default to 18% if no rate found
-            })()
+            // Get the rate from the first item, or default to 18%
+            const firstItem = plainInvoice.items[0];
+            if (firstItem.rate) {
+              // Extract percentage from rate string (e.g., "18%" -> "18")
+              const rateMatch = firstItem.rate
+                .toString()
+                .match(/(\d+(?:\.\d+)?)/);
+              return rateMatch ? rateMatch[1] : "18";
+            }
+            return "18"; // Default to 18% if no rate found
+          })()
           : "18"
       )
       .replace(
         /\{\{totalCartage\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? plainInvoice.items
-              .reduce((total, item) => {
-                const cartage = parseFloat(item.cartages || 0);
-                return total + (isNaN(cartage) ? 0 : cartage);
-              }, 0)
-              .toLocaleString()
+            .reduce((total, item) => {
+              const cartage = parseFloat(item.cartages || 0);
+              return total + (isNaN(cartage) ? 0 : cartage);
+            }, 0)
+            .toLocaleString()
           : "0"
       )
       .replace(
         /\{\{totalOthers\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? plainInvoice.items
-              .reduce((total, item) => {
-                const others = parseFloat(item.others || 0);
-                return total + (isNaN(others) ? 0 : others);
-              }, 0)
-              .toLocaleString()
+            .reduce((total, item) => {
+              const others = parseFloat(item.others || 0);
+              return total + (isNaN(others) ? 0 : others);
+            }, 0)
+            .toLocaleString()
           : "0"
       )
       .replace(
         /\{\{totalAmountInclTax\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? (() => {
-              const totalAmount = plainInvoice.items.reduce((total, item) => {
-                const amount = parseFloat(
-                  item.valueSalesExcludingST ||
-                    item.totalValues ||
-                    item.total_amount ||
-                    0
-                );
-                return total + (isNaN(amount) ? 0 : amount);
-              }, 0);
+            const totalAmount = plainInvoice.items.reduce((total, item) => {
+              const amount = parseFloat(
+                item.valueSalesExcludingST ||
+                item.totalValues ||
+                item.total_amount ||
+                0
+              );
+              return total + (isNaN(amount) ? 0 : amount);
+            }, 0);
 
-              const totalSalesTax = plainInvoice.items.reduce((total, item) => {
-                const salesTax = parseFloat(item.salesTaxApplicable || 0);
-                return total + (isNaN(salesTax) ? 0 : salesTax);
-              }, 0);
+            const totalSalesTax = plainInvoice.items.reduce((total, item) => {
+              const salesTax = parseFloat(item.salesTaxApplicable || 0);
+              return total + (isNaN(salesTax) ? 0 : salesTax);
+            }, 0);
 
-              const totalCartage = plainInvoice.items.reduce((total, item) => {
-                const cartage = parseFloat(item.cartages || 0);
-                return total + (isNaN(cartage) ? 0 : cartage);
-              }, 0);
+            const totalCartage = plainInvoice.items.reduce((total, item) => {
+              const cartage = parseFloat(item.cartages || 0);
+              return total + (isNaN(cartage) ? 0 : cartage);
+            }, 0);
 
-              const totalOthers = plainInvoice.items.reduce((total, item) => {
-                const others = parseFloat(item.others || 0);
-                return total + (isNaN(others) ? 0 : others);
-              }, 0);
+            const totalOthers = plainInvoice.items.reduce((total, item) => {
+              const others = parseFloat(item.others || 0);
+              return total + (isNaN(others) ? 0 : others);
+            }, 0);
 
-              return (
-                totalAmount +
-                totalSalesTax +
-                totalCartage +
-                totalOthers
-              ).toLocaleString();
-            })()
+            return (
+              totalAmount +
+              totalSalesTax +
+              totalCartage +
+              totalOthers
+            ).toLocaleString();
+          })()
           : "0"
       )
       .replace(
         /\{\{amountInWords\}\}/g,
         plainInvoice.items && plainInvoice.items.length > 0
           ? (() => {
-              const totalAmount = plainInvoice.items.reduce((total, item) => {
-                const unitPrice = parseFloat(item.unitPrice || item.rate || 0);
-                const quantity = parseFloat(item.quantity || 0);
-                const calculatedAmount = unitPrice * quantity;
-                return total + (isNaN(calculatedAmount) ? 0 : calculatedAmount);
-              }, 0);
+            const totalAmount = plainInvoice.items.reduce((total, item) => {
+              const unitPrice = parseFloat(item.unitPrice || item.rate || 0);
+              const quantity = parseFloat(item.quantity || 0);
+              const calculatedAmount = unitPrice * quantity;
+              return total + (isNaN(calculatedAmount) ? 0 : calculatedAmount);
+            }, 0);
 
-              const totalSalesTax = plainInvoice.items.reduce((total, item) => {
-                const salesTax = parseFloat(item.salesTaxApplicable || 0);
-                return total + (isNaN(salesTax) ? 0 : salesTax);
-              }, 0);
+            const totalSalesTax = plainInvoice.items.reduce((total, item) => {
+              const salesTax = parseFloat(item.salesTaxApplicable || 0);
+              return total + (isNaN(salesTax) ? 0 : salesTax);
+            }, 0);
 
-              const totalCartage = plainInvoice.items.reduce((total, item) => {
-                const cartage = parseFloat(item.cartages || 0);
-                return total + (isNaN(cartage) ? 0 : cartage);
-              }, 0);
+            const totalCartage = plainInvoice.items.reduce((total, item) => {
+              const cartage = parseFloat(item.cartages || 0);
+              return total + (isNaN(cartage) ? 0 : cartage);
+            }, 0);
 
-              const totalOthers = plainInvoice.items.reduce((total, item) => {
-                const others = parseFloat(item.others || 0);
-                return total + (isNaN(others) ? 0 : others);
-              }, 0);
+            const totalOthers = plainInvoice.items.reduce((total, item) => {
+              const others = parseFloat(item.others || 0);
+              return total + (isNaN(others) ? 0 : others);
+            }, 0);
 
-              const finalAmount =
-                totalAmount + totalSalesTax + totalCartage + totalOthers;
-              return convertToWords(finalAmount);
-            })()
+            const finalAmount =
+              totalAmount + totalSalesTax + totalCartage + totalOthers;
+            return convertToWords(finalAmount);
+          })()
           : "Zero Rupees Only"
       );
 
@@ -4481,6 +4493,23 @@ export const deleteInvoice = async (req, res) => {
 
     const { id } = req.params;
 
+    // Always call login API first to get fresh token (as requested by user)
+    // This ensures that even if subsequent checks fail, the token is refreshed first
+    try {
+      console.log(`[Invoice Delete] Calling Rajby login API first to get fresh token for invoice deletion`);
+      await getRajbyToken(true);
+    } catch (tokenError) {
+      console.error(`[Invoice Delete] Failed to get fresh Rajby token:`, tokenError.message);
+      // We continue because the actual deleteRajbyInvoice call will try again/handle it
+      // or we might want to return early? The user said "first to get the updated token".
+      // Let's return early if token fetch fails as it's a prerequisite.
+      return res.status(503).json({
+        success: false,
+        message: `Failed to authenticate with Rajby API: ${tokenError.message}`,
+        error: tokenError.message
+      });
+    }
+
     const invoice = await Invoice.findOne({
       where: {
         id: id,
@@ -4507,16 +4536,16 @@ export const deleteInvoice = async (req, res) => {
     // Similar to createInvoiceForm.jsx which doesn't interact with Rajby API for bulk invoices
     const invoiceNumber = (invoice.invoice_number || '').toString().trim().toUpperCase();
     const isBulkUploadedInvoice = invoiceNumber.startsWith('DRAFT_') || invoiceNumber.startsWith('SAVED_');
-    
+
     let rajbyApiResult = null;
-    
+
     // Check if companyInvoiceRefNo exists and is not empty
     const companyInvoiceRefNo = invoice.companyInvoiceRefNo?.trim();
-    
+
     console.log(
       `[Invoice Delete] Invoice ID: ${invoice.id}, Company Invoice Ref No: ${companyInvoiceRefNo || 'NULL/EMPTY'}, Invoice Number: ${invoice.invoice_number}, Status: ${invoice.status}, Is Bulk Uploaded: ${isBulkUploadedInvoice}`
     );
-    
+
     // Require Company Invoice Reference for Rajby deletion (for all invoices, including bulk)
     if (!companyInvoiceRefNo || companyInvoiceRefNo.length === 0) {
       console.error(
@@ -4648,15 +4677,15 @@ export const deleteInvoice = async (req, res) => {
     await invoice.update({ isDeleted: true });
 
     // Determine deletion reason/context
-    const deletionReason = req.body?.deletionReason || 
-                          (invoice.status === "draft" || invoice.status === "saved" 
-                            ? "Deleted after successful submission to FBR" 
-                            : "Invoice deleted");
-    
+    const deletionReason = req.body?.deletionReason ||
+      (invoice.status === "draft" || invoice.status === "saved"
+        ? "Deleted after successful submission to FBR"
+        : "Invoice deleted");
+
     // Check if this is a cleanup deletion (after submission)
-    const isCleanupDeletion = req.body?.isCleanupDeletion === true || 
-                             req.body?.deletionReason === "Deleted after successful submission to FBR" ||
-                             (invoice.status === "draft" || invoice.status === "saved");
+    const isCleanupDeletion = req.body?.isCleanupDeletion === true ||
+      req.body?.deletionReason === "Deleted after successful submission to FBR" ||
+      (invoice.status === "draft" || invoice.status === "saved");
 
     // Log audit event for invoice deletion
     try {
@@ -4697,6 +4726,99 @@ export const deleteInvoice = async (req, res) => {
 
       message: "Error deleting invoice",
 
+      error: error.message,
+    });
+  }
+};
+
+// Delete internal invoice (no Rajby API call)
+export const deleteInternalInvoice = async (req, res) => {
+  try {
+    const { Invoice, InvoiceItem } = req.tenantModels;
+    const { id } = req.params;
+
+    const invoice = await Invoice.findOne({
+      where: {
+        id: id,
+        isDeleted: false,
+      },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        message: "Invoice not found",
+      });
+    }
+
+    // Get invoice items before soft deletion
+    const invoiceItems = await InvoiceItem.findAll({
+      where: { invoice_id: invoice.id },
+    });
+
+    // Store old values for audit before soft deletion
+    const oldValues = {
+      invoice_id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      system_invoice_id: invoice.system_invoice_id,
+      status: invoice.status,
+      fbr_invoice_number: invoice.fbr_invoice_number,
+      invoiceType: invoice.invoiceType,
+      invoiceDate: invoice.invoiceDate,
+      invoiceRefNo: invoice.invoiceRefNo,
+      companyInvoiceRefNo: invoice.companyInvoiceRefNo,
+      internal_invoice_no: invoice.internal_invoice_no,
+      transctypeId: invoice.transctypeId,
+      totalAmount: invoice.totalAmount,
+      invoice_items: invoiceItems.map((item) => ({
+        id: item.id,
+        product_name: item.name,
+        hsCode: item.hsCode,
+        quantity: item.quantity,
+        rate: item.rate,
+        unitPrice: item.unitPrice,
+        totalValues: item.totalValues,
+        valueSalesExcludingST: item.valueSalesExcludingST,
+        salesTaxApplicable: item.salesTaxApplicable,
+        discount: item.discount,
+      })),
+    };
+
+    // Soft delete: Set isDeleted to true
+    await invoice.update({ isDeleted: true });
+
+    // Log audit event for internal deletion
+    try {
+      await logAuditEvent(
+        req,
+        "invoice",
+        invoice.id,
+        "DELETE",
+        oldValues,
+        null, // newValues
+        {
+          entityName: invoice.invoice_number || invoice.system_invoice_id,
+          endpoint: req.originalUrl,
+          method: req.method,
+          deletionReason: req.body?.deletionReason || "Internal cleanup deletion after FBR submission",
+          isCleanupDeletion: true,
+          internalAction: "DELETE_INTERNAL" // Keep a trace of the internal nature
+        }
+      );
+      console.log(`✅ Audit log created for internal invoice deletion - ID: ${invoice.id}`);
+    } catch (auditError) {
+      console.error(`❌ Error creating audit log for internal deletion:`, auditError.message);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Internal invoice deleted successfully (local only)",
+    });
+  } catch (error) {
+    console.error("Error deleting internal invoice:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error deleting internal invoice",
       error: error.message,
     });
   }
@@ -4834,883 +4956,883 @@ export const getInvoiceStats = async (req, res) => {
 
 // Submit saved invoice to FBR
 
-export const submitSavedInvoice = async (req, res) => {
-  try {
-    const { Invoice, InvoiceItem } = req.tenantModels;
+// export const submitSavedInvoice = async (req, res) => {
+//   try {
+//     const { Invoice, InvoiceItem } = req.tenantModels;
 
-    const { id } = req.params;
+//     const { id } = req.params;
 
-    // Find the invoice
+//     // Find the invoice
 
-    const invoice = await Invoice.findOne({
-      where: {
-        id: id,
-        isDeleted: false,
-      },
-      include: [
-        {
-          model: InvoiceItem,
+//     const invoice = await Invoice.findOne({
+//       where: {
+//         id: id,
+//         isDeleted: false,
+//       },
+//       include: [
+//         {
+//           model: InvoiceItem,
 
-          as: "InvoiceItems",
-        },
-      ],
-    });
+//           as: "InvoiceItems",
+//         },
+//       ],
+//     });
 
-    if (!invoice) {
-      return res.status(404).json({
-        success: false,
+//     if (!invoice) {
+//       return res.status(404).json({
+//         success: false,
 
-        message: "Invoice not found",
-      });
-    }
+//         message: "Invoice not found",
+//       });
+//     }
 
-    if (invoice.status !== "draft") {
-      return res.status(400).json({
-        success: false,
+//     if (invoice.status !== "draft") {
+//       return res.status(400).json({
+//         success: false,
 
-        message: "Only draft invoices can be posted to FBR",
-      });
-    }
+//         message: "Only draft invoices can be posted to FBR",
+//       });
+//     }
 
-    // Check if transctypeId is provided
+//     // Check if transctypeId is provided
 
-    if (!invoice.transctypeId) {
-      return res.status(400).json({
-        success: false,
+//     if (!invoice.transctypeId) {
+//       return res.status(400).json({
+//         success: false,
 
-        message:
-          "Transaction Type ID is required. Please select a transaction type before submitting to FBR.",
-      });
-    }
+//         message:
+//           "Transaction Type ID is required. Please select a transaction type before submitting to FBR.",
+//       });
+//     }
 
-    // Helper functions for data cleaning
+//     // Helper functions for data cleaning
 
-    const cleanValue = (value) => {
-      if (value === null || value === undefined || value === "") return null;
+//     const cleanValue = (value) => {
+//       if (value === null || value === undefined || value === "") return null;
 
-      return String(value).trim();
-    };
+//       return String(value).trim();
+//     };
 
-    const cleanNumericValue = (value) => {
-      const cleaned = cleanValue(value);
+//     const cleanNumericValue = (value) => {
+//       const cleaned = cleanValue(value);
 
-      if (cleaned === null) return null;
+//       if (cleaned === null) return null;
 
-      const num = parseFloat(cleaned);
+//       const num = parseFloat(cleaned);
 
-      return isNaN(num) ? null : num;
-    };
+//       return isNaN(num) ? null : num;
+//     };
 
-    // Prepare data for FBR submission
+//     // Prepare data for FBR submission
 
-    const fbrData = {
-      invoiceType: cleanValue(invoice.invoiceType),
+//     const fbrData = {
+//       invoiceType: cleanValue(invoice.invoiceType),
 
-      invoiceDate: cleanValue(invoice.invoiceDate),
+//       invoiceDate: cleanValue(invoice.invoiceDate),
 
-      sellerNTNCNIC: cleanValue(invoice.sellerNTNCNIC),
+//       sellerNTNCNIC: cleanValue(invoice.sellerNTNCNIC),
 
-      sellerBusinessName: cleanValue(invoice.sellerBusinessName),
+//       sellerBusinessName: cleanValue(invoice.sellerBusinessName),
 
-      sellerProvince: cleanValue(invoice.sellerProvince),
+//       sellerProvince: cleanValue(invoice.sellerProvince),
 
-      sellerAddress: cleanValue(invoice.sellerAddress),
+//       sellerAddress: cleanValue(invoice.sellerAddress),
 
-      buyerNTNCNIC: cleanValue(invoice.buyerNTNCNIC),
+//       buyerNTNCNIC: cleanValue(invoice.buyerNTNCNIC),
 
-      buyerBusinessName: cleanValue(invoice.buyerBusinessName),
+//       buyerBusinessName: cleanValue(invoice.buyerBusinessName),
 
-      buyerProvince: cleanValue(invoice.buyerProvince),
+//       buyerProvince: cleanValue(invoice.buyerProvince),
 
-      buyerAddress: cleanValue(invoice.buyerAddress),
+//       buyerAddress: cleanValue(invoice.buyerAddress),
 
-      buyerRegistrationType: cleanValue(invoice.buyerRegistrationType),
+//       buyerRegistrationType: cleanValue(invoice.buyerRegistrationType),
 
-      invoiceRefNo: cleanValue(invoice.invoiceRefNo),
+//       invoiceRefNo: cleanValue(invoice.invoiceRefNo),
 
-      // FBR expects camelCase key: transctypeId
+//       // FBR expects camelCase key: transctypeId
 
-      transctypeId: cleanValue(invoice.transctypeId),
+//       transctypeId: cleanValue(invoice.transctypeId),
 
-      items: invoice.InvoiceItems.map((item) => {
-        // Handle RS. rate format for FBR submission
+//       items: invoice.InvoiceItems.map((item) => {
+//         // Handle RS. rate format for FBR submission
 
-        let processedRate = cleanValue(item.rate);
+//         let processedRate = cleanValue(item.rate);
 
-        console.log(
-          `Processing rate for item ${item.id}: Original="${item.rate}", Cleaned="${processedRate}"`
-        );
+//         console.log(
+//           `Processing rate for item ${item.id}: Original="${item.rate}", Cleaned="${processedRate}"`
+//         );
 
-        if (
-          processedRate &&
-          (processedRate.includes("RS.") ||
-            processedRate.includes("rs.") ||
-            processedRate.includes("Rs."))
-        ) {
-          // For RS. format, we need to convert it to a format FBR accepts
+//         if (
+//           processedRate &&
+//           (processedRate.includes("RS.") ||
+//             processedRate.includes("rs.") ||
+//             processedRate.includes("Rs."))
+//         ) {
+//           // For RS. format, we need to convert it to a format FBR accepts
 
-          // Extract the numeric value and set it as a standard rate
+//           // Extract the numeric value and set it as a standard rate
 
-          const numericValue =
-            parseFloat(processedRate.replace(/RS\./i, "").trim()) || 0;
+//           const numericValue =
+//             parseFloat(processedRate.replace(/RS\./i, "").trim()) || 0;
 
-          // Check the sales type to determine the appropriate rate
+//           // Check the sales type to determine the appropriate rate
 
-          const saleType = cleanValue(item.saleType) || "";
+//           const saleType = cleanValue(item.saleType) || "";
 
-          if (saleType.includes("Reduced Rate")) {
-            processedRate = 12; // Use reduced rate for FBR
-          } else if (
-            saleType.includes("zero-rate") ||
-            saleType.includes("Zero")
-          ) {
-            processedRate = 0; // Use zero rate for FBR
-          } else {
-            processedRate = 17; // Use standard rate for FBR
-          }
+//           if (saleType.includes("Reduced Rate")) {
+//             processedRate = 12; // Use reduced rate for FBR
+//           } else if (
+//             saleType.includes("zero-rate") ||
+//             saleType.includes("Zero")
+//           ) {
+//             processedRate = 0; // Use zero rate for FBR
+//           } else {
+//             processedRate = 17; // Use standard rate for FBR
+//           }
 
-          console.log(
-            `RS. rate detected and converted: "${item.rate}" -> "${processedRate}" (using ${saleType} rate for FBR, fixed amount: ${numericValue})`
-          );
-        }
+//           console.log(
+//             `RS. rate detected and converted: "${item.rate}" -> "${processedRate}" (using ${saleType} rate for FBR, fixed amount: ${numericValue})`
+//           );
+//         }
 
-        const baseItem = {
-          hsCode: cleanValue(item.hsCode).substring(0, 50),
+//         const baseItem = {
+//           hsCode: cleanValue(item.hsCode).substring(0, 50),
 
-          productDescription: cleanValue(item.productDescription),
+//           productDescription: cleanValue(item.productDescription),
 
-          rate: processedRate,
+//           rate: processedRate,
 
-          uoM: cleanValue(item.uoM),
+//           uoM: cleanValue(item.uoM),
 
-          quantity: cleanNumericValue(item.quantity),
+//           quantity: cleanNumericValue(item.quantity),
 
-          unitPrice: cleanNumericValue(item.unitPrice),
+//           unitPrice: cleanNumericValue(item.unitPrice),
 
-          totalValues: cleanNumericValue(item.totalValues),
+//           totalValues: cleanNumericValue(item.totalValues),
 
-          valueSalesExcludingST: cleanNumericValue(item.valueSalesExcludingST),
+//           valueSalesExcludingST: cleanNumericValue(item.valueSalesExcludingST),
 
-          fixedNotifiedValueOrRetailPrice: cleanNumericValue(
-            item.fixedNotifiedValueOrRetailPrice
-          ),
+//           fixedNotifiedValueOrRetailPrice: cleanNumericValue(
+//             item.fixedNotifiedValueOrRetailPrice
+//           ),
 
-          salesTaxApplicable: cleanNumericValue(item.salesTaxApplicable),
+//           salesTaxApplicable: cleanNumericValue(item.salesTaxApplicable),
 
-          salesTaxWithheldAtSource: cleanNumericValue(
-            item.salesTaxWithheldAtSource
-          ),
+//           salesTaxWithheldAtSource: cleanNumericValue(
+//             item.salesTaxWithheldAtSource
+//           ),
 
-          furtherTax: cleanNumericValue(item.furtherTax),
+//           furtherTax: cleanNumericValue(item.furtherTax),
 
-          sroScheduleNo: cleanValue(item.sroScheduleNo),
+//           sroScheduleNo: cleanValue(item.sroScheduleNo),
 
-          fedPayable: cleanNumericValue(item.fedPayable),
+//           fedPayable: cleanNumericValue(item.fedPayable),
 
-          discount: cleanNumericValue(item.discount),
+//           discount: cleanNumericValue(item.discount),
 
-          saleType: cleanValue(item.saleType),
+//           saleType: cleanValue(item.saleType),
 
-          sroItemSerialNo: cleanValue(item.sroItemSerialNo),
-        };
+//           sroItemSerialNo: cleanValue(item.sroItemSerialNo),
+//         };
 
-        // Only include extraTax when it's a positive value (> 0) and not applicable for reduced/exempt
+//         // Only include extraTax when it's a positive value (> 0) and not applicable for reduced/exempt
 
-        const extraTaxValue = cleanNumericValue(item.extraTax);
+//         const extraTaxValue = cleanNumericValue(item.extraTax);
 
-        const isReduced =
-          (cleanValue(item.saleType) || "").trim() === "Goods at Reduced Rate";
+//         const isReduced =
+//           (cleanValue(item.saleType) || "").trim() === "Goods at Reduced Rate";
 
-        const rateValue = cleanValue(item.rate) || "";
+//         const rateValue = cleanValue(item.rate) || "";
 
-        const isExempt =
-          typeof rateValue === "string" && rateValue.toLowerCase() === "exempt";
+//         const isExempt =
+//           typeof rateValue === "string" && rateValue.toLowerCase() === "exempt";
 
-        if (
-          extraTaxValue !== null &&
-          Number(extraTaxValue) > 0 &&
-          !isReduced &&
-          !isExempt
-        ) {
-          baseItem.extraTax = extraTaxValue;
-        }
+//         if (
+//           extraTaxValue !== null &&
+//           Number(extraTaxValue) > 0 &&
+//           !isReduced &&
+//           !isExempt
+//         ) {
+//           baseItem.extraTax = extraTaxValue;
+//         }
 
-        return baseItem;
-      }),
-    };
+//         return baseItem;
+//       }),
+//     };
 
-    // Debug: Log the cleaned data being sent to FBR
+//     // Debug: Log the cleaned data being sent to FBR
 
-    console.log(
-      "Cleaned FBR data being sent:",
+//     console.log(
+//       "Cleaned FBR data being sent:",
 
-      JSON.stringify(fbrData, null, 2)
-    );
+//       JSON.stringify(fbrData, null, 2)
+//     );
 
-    // Additional debug: Log rate processing summary
+//     // Additional debug: Log rate processing summary
 
-    console.log("Rate processing summary:");
+//     console.log("Rate processing summary:");
 
-    fbrData.items.forEach((item, index) => {
-      console.log(
-        `  Item ${index + 1}: rate="${item.rate}", salesTaxApplicable="${item.salesTaxApplicable}", saleType="${item.saleType}"`
-      );
-    });
+//     fbrData.items.forEach((item, index) => {
+//       console.log(
+//         `  Item ${index + 1}: rate="${item.rate}", salesTaxApplicable="${item.salesTaxApplicable}", saleType="${item.saleType}"`
+//       );
+//     });
 
-    // Get tenant FBR token from the tenant middleware
+//     // Get tenant FBR token from the tenant middleware
 
-    if (!req.tenant || !req.tenant.sandboxTestToken) {
-      return res.status(400).json({
-        success: false,
+//     if (!req.tenant || !req.tenant.sandboxTestToken) {
+//       return res.status(400).json({
+//         success: false,
 
-        message: "FBR token not found for this tenant",
-      });
-    }
+//         message: "FBR token not found for this tenant",
+//       });
+//     }
 
-    // Import FBR API functions
+//     // Import FBR API functions
 
-    const { postData } = await import("../../service/FBRService.js");
+//     const { postData } = await import("../../service/FBRService.js");
 
-    // Create backup for FBR request
-    try {
-      await InvoiceBackupService.createFbrRequestBackup({
-        tenantDb: req.tenantDb,
-        tenantModels: req.tenantModels,
-        invoice: invoice,
-        fbrRequestData: fbrData,
-        user: req.user,
-        tenant: req.tenant,
-        request: {
-          ip: req.ip || req.connection?.remoteAddress,
-          userAgent: req.get ? req.get("User-Agent") : null,
-          requestId: req.headers?.["x-request-id"] || null,
-        },
-      });
-    } catch (backupError) {
-      console.error("❌ Error creating FBR request backup:", backupError);
-      // Don't fail the main operation if backup fails
-    }
+//     // Create backup for FBR request
+//     try {
+//       await InvoiceBackupService.createFbrRequestBackup({
+//         tenantDb: req.tenantDb,
+//         tenantModels: req.tenantModels,
+//         invoice: invoice,
+//         fbrRequestData: fbrData,
+//         user: req.user,
+//         tenant: req.tenant,
+//         request: {
+//           ip: req.ip || req.connection?.remoteAddress,
+//           userAgent: req.get ? req.get("User-Agent") : null,
+//           requestId: req.headers?.["x-request-id"] || null,
+//         },
+//       });
+//     } catch (backupError) {
+//       console.error("❌ Error creating FBR request backup:", backupError);
+//       // Don't fail the main operation if backup fails
+//     }
 
-    // Submit directly to FBR (skipping validation)
+//     // Submit directly to FBR (skipping validation)
 
-    const postRes = await postData(
-      "di_data/v1/di/postinvoicedata_sb",
+//     const postRes = await postData(
+//       "di_data/v1/di/postinvoicedata_sb",
 
-      fbrData,
+//       fbrData,
 
-      "sandbox",
+//       "sandbox",
 
-      req.tenant.sandboxTestToken
-    );
+//       req.tenant.sandboxTestToken
+//     );
 
-    console.log("FBR Response:", JSON.stringify(postRes.data, null, 2));
+//     console.log("FBR Response:", JSON.stringify(postRes.data, null, 2));
 
-    console.log("FBR Response Type:", typeof postRes.data);
+//     console.log("FBR Response Type:", typeof postRes.data);
 
-    // Create backup for FBR response
-    try {
-      await InvoiceBackupService.createFbrResponseBackup({
-        tenantDb: req.tenantDb,
-        tenantModels: req.tenantModels,
-        invoice: invoice,
-        fbrResponseData: postRes.data,
-        user: req.user,
-        tenant: req.tenant,
-        request: {
-          ip: req.ip || req.connection?.remoteAddress,
-          userAgent: req.get ? req.get("User-Agent") : null,
-          requestId: req.headers?.["x-request-id"] || null,
-        },
-      });
-    } catch (backupError) {
-      console.error("❌ Error creating FBR response backup:", backupError);
-      // Don't fail the main operation if backup fails
-    }
+//     // Create backup for FBR response
+//     try {
+//       await InvoiceBackupService.createFbrResponseBackup({
+//         tenantDb: req.tenantDb,
+//         tenantModels: req.tenantModels,
+//         invoice: invoice,
+//         fbrResponseData: postRes.data,
+//         user: req.user,
+//         tenant: req.tenant,
+//         request: {
+//           ip: req.ip || req.connection?.remoteAddress,
+//           userAgent: req.get ? req.get("User-Agent") : null,
+//           requestId: req.headers?.["x-request-id"] || null,
+//         },
+//       });
+//     } catch (backupError) {
+//       console.error("❌ Error creating FBR response backup:", backupError);
+//       // Don't fail the main operation if backup fails
+//     }
 
-    const dataSizeInfo = Array.isArray(postRes.data)
-      ? postRes.data.length
-      : typeof postRes.data === "object" && postRes.data !== null
-        ? Object.keys(postRes.data).length
-        : typeof postRes.data === "string"
-          ? postRes.data.length
-          : 0;
+//     const dataSizeInfo = Array.isArray(postRes.data)
+//       ? postRes.data.length
+//       : typeof postRes.data === "object" && postRes.data !== null
+//         ? Object.keys(postRes.data).length
+//         : typeof postRes.data === "string"
+//           ? postRes.data.length
+//           : 0;
 
-    console.log("FBR Response Data Size:", dataSizeInfo);
+//     console.log("FBR Response Data Size:", dataSizeInfo);
 
-    // Handle different FBR response structures
+//     // Handle different FBR response structures
 
-    let isSuccess = false;
-
-    let fbrInvoiceNumber = null;
-    let fbrDetailNo = null;
+//     let isSuccess = false;
 
-    let errorDetails = null;
+//     let fbrInvoiceNumber = null;
+//     let fbrDetailNo = null;
 
-    if (postRes.status === 200) {
-      // Check for validationResponse structure (old format)
+//     let errorDetails = null;
 
-      if (postRes.data && postRes.data.validationResponse) {
-        const validation = postRes.data.validationResponse;
+//     if (postRes.status === 200) {
+//       // Check for validationResponse structure (old format)
 
-        isSuccess = validation.statusCode === "00";
+//       if (postRes.data && postRes.data.validationResponse) {
+//         const validation = postRes.data.validationResponse;
 
-        fbrInvoiceNumber = postRes.data.invoiceNumber;
-        
-        // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as frontend)
-        console.log("🔍 Debug - Extracting fbrDetailNo from validationResponse:", {
-          hasValidationInvoiceStatuses: !!(validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses)),
-          validationInvoiceStatusesLength: validation.invoiceStatuses?.length || 0,
-          hasDataInvoiceStatuses: !!(postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses)),
-          dataInvoiceStatusesLength: postRes.data.invoiceStatuses?.length || 0,
-        });
-        
-        if (validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses) && validation.invoiceStatuses.length > 0) {
-          fbrDetailNo = validation.invoiceStatuses[0].invoiceNo;
-          console.log("🔍 Debug - Extracted fbrDetailNo from validation.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
-        } else if (postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses) && postRes.data.invoiceStatuses.length > 0) {
-          fbrDetailNo = postRes.data.invoiceStatuses[0].invoiceNo;
-          console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
-        } else {
-          console.warn("⚠️ Debug - Could not extract fbrDetailNo from response structure");
-        }
+//         isSuccess = validation.statusCode === "00";
 
-        console.log("FBR Response - validationResponse format:", {
-          statusCode: validation.statusCode,
+//         fbrInvoiceNumber = postRes.data.invoiceNumber;
 
-          isSuccess,
+//         // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as frontend)
+//         console.log("🔍 Debug - Extracting fbrDetailNo from validationResponse:", {
+//           hasValidationInvoiceStatuses: !!(validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses)),
+//           validationInvoiceStatusesLength: validation.invoiceStatuses?.length || 0,
+//           hasDataInvoiceStatuses: !!(postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses)),
+//           dataInvoiceStatusesLength: postRes.data.invoiceStatuses?.length || 0,
+//         });
 
-          fbrInvoiceNumber,
-          fbrDetailNo,
-        });
+//         if (validation.invoiceStatuses && Array.isArray(validation.invoiceStatuses) && validation.invoiceStatuses.length > 0) {
+//           fbrDetailNo = validation.invoiceStatuses[0].invoiceNo;
+//           console.log("🔍 Debug - Extracted fbrDetailNo from validation.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+//         } else if (postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses) && postRes.data.invoiceStatuses.length > 0) {
+//           fbrDetailNo = postRes.data.invoiceStatuses[0].invoiceNo;
+//           console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+//         } else {
+//           console.warn("⚠️ Debug - Could not extract fbrDetailNo from response structure");
+//         }
 
-        if (!isSuccess) {
-          errorDetails = validation;
-        }
-      }
+//         console.log("FBR Response - validationResponse format:", {
+//           statusCode: validation.statusCode,
 
-      // Check for direct response structure (new format)
-      else if (
-        postRes.data &&
-        (postRes.data.invoiceNumber || postRes.data.success)
-      ) {
-        isSuccess = true;
+//           isSuccess,
 
-        fbrInvoiceNumber = postRes.data.invoiceNumber;
-        
-        // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as frontend)
-        console.log("🔍 Debug - Extracting fbrDetailNo from direct format:", {
-          hasDataInvoiceStatuses: !!(postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses)),
-          dataInvoiceStatusesLength: postRes.data.invoiceStatuses?.length || 0,
-          hasValidationResponse: !!postRes.data.validationResponse,
-          hasValidationInvoiceStatuses: !!(postRes.data.validationResponse?.invoiceStatuses && Array.isArray(postRes.data.validationResponse.invoiceStatuses)),
-          validationInvoiceStatusesLength: postRes.data.validationResponse?.invoiceStatuses?.length || 0,
-        });
-        
-        if (postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses) && postRes.data.invoiceStatuses.length > 0) {
-          fbrDetailNo = postRes.data.invoiceStatuses[0].invoiceNo;
-          console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
-        } else if (postRes.data.validationResponse && postRes.data.validationResponse.invoiceStatuses && Array.isArray(postRes.data.validationResponse.invoiceStatuses) && postRes.data.validationResponse.invoiceStatuses.length > 0) {
-          fbrDetailNo = postRes.data.validationResponse.invoiceStatuses[0].invoiceNo;
-          console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.validationResponse.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
-        } else {
-          console.warn("⚠️ Debug - Could not extract fbrDetailNo from direct format response structure");
-        }
+//           fbrInvoiceNumber,
+//           fbrDetailNo,
+//         });
 
-        console.log("FBR Response - direct format:", {
-          isSuccess,
+//         if (!isSuccess) {
+//           errorDetails = validation;
+//         }
+//       }
 
-          fbrInvoiceNumber,
-          fbrDetailNo,
+//       // Check for direct response structure (new format)
+//       else if (
+//         postRes.data &&
+//         (postRes.data.invoiceNumber || postRes.data.success)
+//       ) {
+//         isSuccess = true;
 
-          success: postRes.data.success,
-        });
-      }
+//         fbrInvoiceNumber = postRes.data.invoiceNumber;
 
-      // Check for error response structure
-      else if (postRes.data && postRes.data.error) {
-        isSuccess = false;
+//         // Extract fbrDetailNo from invoiceStatuses[].invoiceNo (same as frontend)
+//         console.log("🔍 Debug - Extracting fbrDetailNo from direct format:", {
+//           hasDataInvoiceStatuses: !!(postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses)),
+//           dataInvoiceStatusesLength: postRes.data.invoiceStatuses?.length || 0,
+//           hasValidationResponse: !!postRes.data.validationResponse,
+//           hasValidationInvoiceStatuses: !!(postRes.data.validationResponse?.invoiceStatuses && Array.isArray(postRes.data.validationResponse.invoiceStatuses)),
+//           validationInvoiceStatusesLength: postRes.data.validationResponse?.invoiceStatuses?.length || 0,
+//         });
 
-        errorDetails = postRes.data;
+//         if (postRes.data.invoiceStatuses && Array.isArray(postRes.data.invoiceStatuses) && postRes.data.invoiceStatuses.length > 0) {
+//           fbrDetailNo = postRes.data.invoiceStatuses[0].invoiceNo;
+//           console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+//         } else if (postRes.data.validationResponse && postRes.data.validationResponse.invoiceStatuses && Array.isArray(postRes.data.validationResponse.invoiceStatuses) && postRes.data.validationResponse.invoiceStatuses.length > 0) {
+//           fbrDetailNo = postRes.data.validationResponse.invoiceStatuses[0].invoiceNo;
+//           console.log("🔍 Debug - Extracted fbrDetailNo from postRes.data.validationResponse.invoiceStatuses[0].invoiceNo:", fbrDetailNo);
+//         } else {
+//           console.warn("⚠️ Debug - Could not extract fbrDetailNo from direct format response structure");
+//         }
 
-        console.log("FBR Response - error format:", postRes.data.error);
-      }
+//         console.log("FBR Response - direct format:", {
+//           isSuccess,
 
-      // Check for empty response - this might be a successful submission
-      else if (!postRes.data || postRes.data === "") {
-        console.log(
-          "FBR returned empty response with 200 status - treating as successful submission"
-        );
+//           fbrInvoiceNumber,
+//           fbrDetailNo,
 
-        isSuccess = true;
+//           success: postRes.data.success,
+//         });
+//       }
 
-        // For empty responses, we'll use the original invoice number as FBR invoice number
+//       // Check for error response structure
+//       else if (postRes.data && postRes.data.error) {
+//         isSuccess = false;
 
-        fbrInvoiceNumber = req.body.invoice_number || `FBR_${Date.now()}`;
+//         errorDetails = postRes.data;
 
-        console.log(
-          "Using original invoice number as FBR invoice number:",
+//         console.log("FBR Response - error format:", postRes.data.error);
+//       }
 
-          fbrInvoiceNumber
-        );
-      }
+//       // Check for empty response - this might be a successful submission
+//       else if (!postRes.data || postRes.data === "") {
+//         console.log(
+//           "FBR returned empty response with 200 status - treating as successful submission"
+//         );
 
-      // If response is unexpected, treat as success if status is 200
-      else {
-        isSuccess = true;
-
-        console.log(
-          "FBR returned 200 status with unexpected response structure, treating as success"
-        );
-
-        console.log("Unexpected response structure:", postRes.data);
-      }
-    } else {
-      console.log("FBR returned non-200 status:", postRes.status);
-    }
-
-    if (!isSuccess) {
-      const details = errorDetails || {
-        raw: postRes.data ?? null,
+//         isSuccess = true;
 
-        note: "Unexpected FBR response structure",
+//         // For empty responses, we'll use the original invoice number as FBR invoice number
 
-        status: postRes.status,
-      };
+//         fbrInvoiceNumber = req.body.invoice_number || `FBR_${Date.now()}`;
 
-      const collectErrorMessages = (det) => {
-        const messages = [];
+//         console.log(
+//           "Using original invoice number as FBR invoice number:",
 
-        if (det && typeof det === "object") {
-          if (det.error) messages.push(det.error);
+//           fbrInvoiceNumber
+//         );
+//       }
 
-          if (Array.isArray(det.invoiceStatuses)) {
-            det.invoiceStatuses.forEach((s) => {
-              if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
-            });
-          }
+//       // If response is unexpected, treat as success if status is 200
+//       else {
+//         isSuccess = true;
 
-          if (det.validationResponse) {
-            const v = det.validationResponse;
+//         console.log(
+//           "FBR returned 200 status with unexpected response structure, treating as success"
+//         );
 
-            if (v?.error) messages.push(v.error);
+//         console.log("Unexpected response structure:", postRes.data);
+//       }
+//     } else {
+//       console.log("FBR returned non-200 status:", postRes.status);
+//     }
 
-            if (Array.isArray(v?.invoiceStatuses)) {
-              v.invoiceStatuses.forEach((s) => {
-                if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
-              });
-            }
-          }
-        }
+//     if (!isSuccess) {
+//       const details = errorDetails || {
+//         raw: postRes.data ?? null,
 
-        return messages.filter(Boolean);
-      };
+//         note: "Unexpected FBR response structure",
 
-      const errorMessages = collectErrorMessages(details);
+//         status: postRes.status,
+//       };
 
-      const message = errorMessages.length
-        ? `FBR submission failed: ${errorMessages.join("; ")}`
-        : "FBR submission failed";
+//       const collectErrorMessages = (det) => {
+//         const messages = [];
 
-      return res.status(400).json({
-        success: false,
-
-        message,
-
-        code:
-          details?.statusCode ||
-          details?.errorCode ||
-          details?.validationResponse?.statusCode,
-
-        details,
-      });
-    }
+//         if (det && typeof det === "object") {
+//           if (det.error) messages.push(det.error);
 
-    // Persist line-item level invoice numbers returned by FBR (e.g. "0711...-1")
-    try {
-      const lineItemStatuses =
-        postRes.data?.validationResponse?.invoiceStatuses ||
-        postRes.data?.invoiceStatuses ||
-        [];
+//           if (Array.isArray(det.invoiceStatuses)) {
+//             det.invoiceStatuses.forEach((s) => {
+//               if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
+//             });
+//           }
 
-      if (Array.isArray(lineItemStatuses) && lineItemStatuses.length > 0) {
-        const sortedItems = [...(invoice.InvoiceItems || [])].sort(
-          (a, b) => a.id - b.id
-        );
+//           if (det.validationResponse) {
+//             const v = det.validationResponse;
 
-        await Promise.all(
-          lineItemStatuses.map((status) => {
-            const idx = parseInt(status?.itemSNo, 10);
-            if (!Number.isInteger(idx) || idx < 1) return null;
+//             if (v?.error) messages.push(v.error);
 
-            const targetItem = sortedItems[idx - 1];
-            if (!targetItem || !status?.invoiceNo) return null;
+//             if (Array.isArray(v?.invoiceStatuses)) {
+//               v.invoiceStatuses.forEach((s) => {
+//                 if (s?.error) messages.push(`Item ${s.itemSNo}: ${s.error}`);
+//               });
+//             }
+//           }
+//         }
 
-            // Keep in-memory copy in sync for downstream logging/response
-            targetItem.InvoiceDetId = status.invoiceNo;
-            return targetItem.update({
-              InvoiceDetId: status.invoiceNo,
-            });
-          })
-        );
-      }
-    } catch (lineItemUpdateError) {
-      console.error(
-        "❌ Error updating line item invoice numbers from FBR response:",
-        lineItemUpdateError
-      );
-    }
+//         return messages.filter(Boolean);
+//       };
 
-    // Ensure we have a valid FBR invoice number before updating
+//       const errorMessages = collectErrorMessages(details);
 
-    if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "") {
-      console.log("FBR invoice number validation failed:", {
-        fbrInvoiceNumber,
+//       const message = errorMessages.length
+//         ? `FBR submission failed: ${errorMessages.join("; ")}`
+//         : "FBR submission failed";
 
-        type: typeof fbrInvoiceNumber,
-
-        length: fbrInvoiceNumber ? fbrInvoiceNumber.length : 0,
-      });
+//       return res.status(400).json({
+//         success: false,
 
-      return res.status(400).json({
-        success: false,
-
-        message: "FBR submission failed: No invoice number received from FBR",
-
-        details: errorDetails || {
-          raw: postRes.data ?? null,
-
-          note: "No invoice number in FBR response",
-
-          status: postRes.status,
-        },
-      });
-    }
-
-    // Update invoice status to 'posted' and replace draft number with FBR number when successfully submitted to FBR
-
-    // This ensures that posted invoices show the official FBR invoice number instead of the draft number
-
-    const updateData = {
-      status: "posted",
-
-      fbr_invoice_number: fbrInvoiceNumber,
-    };
-
-    // Create backup for posted invoice
-    try {
-      await InvoiceBackupService.createPostBackup({
-        tenantDb: req.tenantDb,
-        tenantModels: req.tenantModels,
-        invoice: invoice,
-        invoiceItems: invoiceItems,
-        user: req.user,
-        tenant: req.tenant,
-        request: {
-          ip: req.ip || req.connection?.remoteAddress,
-          userAgent: req.get ? req.get("User-Agent") : null,
-          requestId: req.headers?.["x-request-id"] || null,
-        },
-      });
-    } catch (backupError) {
-      console.error("❌ Error creating post backup:", backupError);
-      // Don't fail the main operation if backup fails
-    }
-
-    // Only update invoice_number if we have a valid FBR invoice number
-
-    if (fbrInvoiceNumber) {
-      updateData.fbr_invoice_number = fbrInvoiceNumber;
-    }
-
-    console.log("Updating invoice with data:", updateData);
-
-    console.log("FBR Response received:", {
-      invoiceNumber: postRes.data.invoiceNumber,
-
-      validationResponse: postRes.data.validationResponse,
-
-      statusCode: postRes.data.validationResponse?.statusCode,
-    });
-
-    await invoice.update(updateData);
-
-    // Verify the update was successful
-
-    const updatedInvoice = await Invoice.findByPk(invoice.id);
-
-    console.log("Invoice updated successfully:", {
-      id: updatedInvoice.id,
-
-      original_invoice_number: updatedInvoice.invoice_number,
-
-      fbr_invoice_number: updatedInvoice.fbr_invoice_number,
-
-      status: updatedInvoice.status,
-    });
-
-    // Call Rajby FBR Reference API after successful FBR submission
-    console.log("🔍 Rajby API Debug - Checking conditions for submitSavedInvoice:", {
-      companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
-      fbrInvoiceNumber: fbrInvoiceNumber,
-      fbrDetailNo: fbrDetailNo,
-      hasCompanyInvoiceRefNo: !!updatedInvoice.companyInvoiceRefNo,
-      hasFbrInvoiceNumber: !!fbrInvoiceNumber,
-      hasFbrDetailNo: !!fbrDetailNo,
-      allConditionsMet: !!(updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber && fbrDetailNo)
-    });
-    
-    if (updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber && fbrDetailNo) {
-      try {
-        // Reload invoice items to get updated InvoiceDetId values
-        const invoiceItemsWithDetails = await InvoiceItem.findAll({
-          where: { invoice_id: updatedInvoice.id },
-          attributes: ['id', 'InvoiceDetId'],
-          order: [['id', 'ASC']],
-        });
-
-        console.log("invoiceItemsWithDetails", invoiceItemsWithDetails);
-        
-        // Get invoiceStatuses from FBR response to map fbrDetailNo to items
-        const invoiceStatuses = postRes.data?.validationResponse?.invoiceStatuses || postRes.data?.invoiceStatuses || [];
-        
-        // Handle fbrDetailNo: can be a string (single value) or array
-        const fbrDetailNoArray = Array.isArray(fbrDetailNo) 
-          ? fbrDetailNo 
-          : fbrDetailNo 
-            ? [fbrDetailNo] 
-            : [];
-        
-        // Prepare invoiceDetails array from invoice items (same logic as createInvoice)
-        const invoiceDetails = [];
-        invoiceItemsWithDetails.forEach((item, index) => {
-          const detInvNo = item.InvoiceDetId;
-          // Use corresponding fbrDetailNo from invoiceStatuses if available, otherwise use array index
-          const fbrNo = invoiceStatuses[index]?.invoiceNo || fbrDetailNoArray[index] || fbrDetailNoArray[0] || null;
-          
-          console.log(`🔍 Rajby API Debug - Item ${index}:`, {
-            detInvNo,
-            fbrNo,
-            InvoiceDetId: item.InvoiceDetId,
-            id: item.id
-          });
-          
-          if (detInvNo && fbrNo) {
-            invoiceDetails.push({
-              detInvNo: detInvNo,
-              fbrNo: fbrNo, // Use fbrDetailNo from FBR response (invoiceNo from invoiceStatuses)
-            });
-          }
-        });
-        
-        console.log("🔍 Rajby API Debug - Prepared invoiceDetails:", invoiceDetails);
-
-        // Call Rajby FBR Reference API
-        const invoiceDateFormatted = updatedInvoice.invoiceDate 
-          ? (updatedInvoice.invoiceDate instanceof Date 
-              ? updatedInvoice.invoiceDate.toISOString().split('T')[0]
-              : new Date(updatedInvoice.invoiceDate).toISOString().split('T')[0])
-          : null;
-
-        if (!invoiceDateFormatted) {
-          console.warn("⚠️ Cannot call Rajby FBR Reference API: invoiceDate is missing");
-        } else if (invoiceDetails.length === 0) {
-          console.warn("⚠️ Cannot call Rajby FBR Reference API: No invoice details available (missing fbr_detail_no or invoice items)");
-        } else {
-          console.log("🚀 Calling Rajby FBR Reference API with:", {
-            fbrInvoiceNumber: fbrInvoiceNumber,
-            companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
-            invoiceDate: invoiceDateFormatted,
-            invoiceDetailsCount: invoiceDetails.length
-          });
-          
-          const rajbyReferenceResult = await submitFBRReference({
-            fbrInvoiceNumber: fbrInvoiceNumber,
-            companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
-            invoiceDate: invoiceDateFormatted,
-            invoiceDetails: invoiceDetails,
-          });
-          console.log("✅ Rajby FBR Reference API called successfully:", rajbyReferenceResult);
-        }
-      } catch (rajbyError) {
-        // Log error but don't fail the invoice submission
-        console.error("❌ Error calling Rajby FBR Reference API:", rajbyError.message);
-        console.error("❌ Full error:", rajbyError);
-        // Continue with the rest of the flow even if Rajby API call fails
-      }
-    } else {
-      console.warn("⚠️ Rajby FBR Reference API not called - missing required fields:", {
-        hasCompanyInvoiceRefNo: !!updatedInvoice.companyInvoiceRefNo,
-        hasFbrInvoiceNumber: !!fbrInvoiceNumber,
-        hasFbrDetailNo: !!fbrDetailNo
-      });
-    }
-
-    // Log audit event for invoice submission to FBR
-    await logAuditEvent(
-      req,
-      "invoice",
-      invoice.id,
-      "SUBMIT_TO_FBR",
-      {
-        // Basic Invoice Information
-        invoice_id: invoice.id,
-        invoice_number: invoice.invoice_number,
-        system_invoice_id: invoice.system_invoice_id,
-        status: invoice.status,
-        fbr_invoice_number: invoice.fbr_invoice_number,
-        invoiceType: invoice.invoiceType,
-        invoiceDate: invoice.invoiceDate,
-        invoiceRefNo: invoice.invoiceRefNo,
-        companyInvoiceRefNo: invoice.companyInvoiceRefNo,
-        internal_invoice_no: invoice.internal_invoice_no,
-        transctypeId: invoice.transctypeId,
-
-        // Complete Seller Information
-        sellerNTNCNIC: invoice.sellerNTNCNIC,
-        sellerFullNTN: invoice.sellerFullNTN,
-        sellerBusinessName: invoice.sellerBusinessName,
-        sellerProvince: invoice.sellerProvince,
-        sellerAddress: invoice.sellerAddress,
-        sellerCity: invoice.sellerCity,
-
-        // Complete Buyer Information
-        buyerNTNCNIC: invoice.buyerNTNCNIC,
-        buyerBusinessName: invoice.buyerBusinessName,
-        buyerProvince: invoice.buyerProvince,
-        buyerAddress: invoice.buyerAddress,
-        buyerRegistrationType: invoice.buyerRegistrationType,
-
-        // Financial Information
-        totalAmount: invoice.totalAmount,
-
-        // Complete Invoice Items with All Details
-        invoice_items: invoice.InvoiceItems
-          ? invoice.InvoiceItems.map((item) => ({
-              id: item.id,
-              product_name: item.name,
-              hsCode: item.hsCode,
-              InvoiceItemId: item.InvoiceItemId,
-              InvoiceDetId: item.InvoiceDetId,
-              productDescription: item.productDescription,
-              quantity: item.quantity,
-              rate: item.rate,
-              uoM: item.uoM,
-              unitPrice: item.unitPrice,
-              totalValues: item.totalValues,
-              valueSalesExcludingST: item.valueSalesExcludingST,
-              fixedNotifiedValueOrRetailPrice:
-                item.fixedNotifiedValueOrRetailPrice,
-              salesTaxApplicable: item.salesTaxApplicable,
-              salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
-              extraTax: item.extraTax,
-              furtherTax: item.furtherTax,
-              sroScheduleNo: item.sroScheduleNo,
-              fedPayable: item.fedPayable,
-              advanceIncomeTax: item.advanceIncomeTax,
-              discount: item.discount,
-              saleType: item.saleType,
-              sroItemSerialNo: item.sroItemSerialNo,
-              billOfLadingUoM: item.billOfLadingUoM,
-            }))
-          : [],
-      }, // oldValues (before submission)
-      {
-        // Basic Invoice Information
-        invoice_id: updatedInvoice.id,
-        invoice_number: updatedInvoice.invoice_number,
-        system_invoice_id: updatedInvoice.system_invoice_id,
-        status: updatedInvoice.status,
-        fbr_invoice_number: updatedInvoice.fbr_invoice_number,
-        invoiceType: updatedInvoice.invoiceType,
-        invoiceDate: updatedInvoice.invoiceDate,
-        invoiceRefNo: updatedInvoice.invoiceRefNo,
-        companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
-        internal_invoice_no: updatedInvoice.internal_invoice_no,
-        transctypeId: updatedInvoice.transctypeId,
-
-        // Complete Seller Information
-        sellerNTNCNIC: updatedInvoice.sellerNTNCNIC,
-        sellerFullNTN: updatedInvoice.sellerFullNTN,
-        sellerBusinessName: updatedInvoice.sellerBusinessName,
-        sellerProvince: updatedInvoice.sellerProvince,
-        sellerAddress: updatedInvoice.sellerAddress,
-        sellerCity: updatedInvoice.sellerCity,
-
-        // Complete Buyer Information
-        buyerNTNCNIC: updatedInvoice.buyerNTNCNIC,
-        buyerBusinessName: updatedInvoice.buyerBusinessName,
-        buyerProvince: updatedInvoice.buyerProvince,
-        buyerAddress: updatedInvoice.buyerAddress,
-        buyerRegistrationType: updatedInvoice.buyerRegistrationType,
-
-        // Financial Information
-        totalAmount: updatedInvoice.totalAmount,
-
-        // Complete Invoice Items with All Details
-        invoice_items: invoice.InvoiceItems
-          ? invoice.InvoiceItems.map((item) => ({
-              id: item.id,
-              product_name: item.name,
-              hsCode: item.hsCode,
-              InvoiceItemId: item.InvoiceItemId,
-              InvoiceDetId: item.InvoiceDetId,
-              productDescription: item.productDescription,
-              quantity: item.quantity,
-              rate: item.rate,
-              uoM: item.uoM,
-              unitPrice: item.unitPrice,
-              totalValues: item.totalValues,
-              valueSalesExcludingST: item.valueSalesExcludingST,
-              fixedNotifiedValueOrRetailPrice:
-                item.fixedNotifiedValueOrRetailPrice,
-              salesTaxApplicable: item.salesTaxApplicable,
-              salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
-              extraTax: item.extraTax,
-              furtherTax: item.furtherTax,
-              sroScheduleNo: item.sroScheduleNo,
-              fedPayable: item.fedPayable,
-              advanceIncomeTax: item.advanceIncomeTax,
-              discount: item.discount,
-              saleType: item.saleType,
-              sroItemSerialNo: item.sroItemSerialNo,
-              billOfLadingUoM: item.billOfLadingUoM,
-            }))
-          : [],
-      }, // newValues (after submission)
-      {
-        entityName:
-          updatedInvoice.invoice_number || updatedInvoice.system_invoice_id,
-        endpoint: req.originalUrl,
-        method: req.method,
-        fbrInvoiceNumber: fbrInvoiceNumber,
-      }
-    );
-
-    res.status(200).json({
-      success: true,
-
-      message: "Invoice posted successfully to FBR",
-
-      data: {
-        invoice_id: invoice.id,
-
-        fbr_invoice_number: fbrInvoiceNumber,
-
-        status: "posted",
-      },
-    });
-  } catch (error) {
-    console.error("Error submitting invoice to FBR:", error);
-
-    res.status(500).json({
-      success: false,
-
-      message: "Error submitting invoice to FBR",
-
-      error: error.message,
-    });
-  }
-};
+//         message,
+
+//         code:
+//           details?.statusCode ||
+//           details?.errorCode ||
+//           details?.validationResponse?.statusCode,
+
+//         details,
+//       });
+//     }
+
+//     // Persist line-item level invoice numbers returned by FBR (e.g. "0711...-1")
+//     try {
+//       const lineItemStatuses =
+//         postRes.data?.validationResponse?.invoiceStatuses ||
+//         postRes.data?.invoiceStatuses ||
+//         [];
+
+//       if (Array.isArray(lineItemStatuses) && lineItemStatuses.length > 0) {
+//         const sortedItems = [...(invoice.InvoiceItems || [])].sort(
+//           (a, b) => a.id - b.id
+//         );
+
+//         await Promise.all(
+//           lineItemStatuses.map((status) => {
+//             const idx = parseInt(status?.itemSNo, 10);
+//             if (!Number.isInteger(idx) || idx < 1) return null;
+
+//             const targetItem = sortedItems[idx - 1];
+//             if (!targetItem || !status?.invoiceNo) return null;
+
+//             // Keep in-memory copy in sync for downstream logging/response
+//             targetItem.InvoiceDetId = status.invoiceNo;
+//             return targetItem.update({
+//               InvoiceDetId: status.invoiceNo,
+//             });
+//           })
+//         );
+//       }
+//     } catch (lineItemUpdateError) {
+//       console.error(
+//         "❌ Error updating line item invoice numbers from FBR response:",
+//         lineItemUpdateError
+//       );
+//     }
+
+//     // Ensure we have a valid FBR invoice number before updating
+
+//     if (!fbrInvoiceNumber || fbrInvoiceNumber.trim() === "") {
+//       console.log("FBR invoice number validation failed:", {
+//         fbrInvoiceNumber,
+
+//         type: typeof fbrInvoiceNumber,
+
+//         length: fbrInvoiceNumber ? fbrInvoiceNumber.length : 0,
+//       });
+
+//       return res.status(400).json({
+//         success: false,
+
+//         message: "FBR submission failed: No invoice number received from FBR",
+
+//         details: errorDetails || {
+//           raw: postRes.data ?? null,
+
+//           note: "No invoice number in FBR response",
+
+//           status: postRes.status,
+//         },
+//       });
+//     }
+
+//     // Update invoice status to 'posted' and replace draft number with FBR number when successfully submitted to FBR
+
+//     // This ensures that posted invoices show the official FBR invoice number instead of the draft number
+
+//     const updateData = {
+//       status: "posted",
+
+//       fbr_invoice_number: fbrInvoiceNumber,
+//     };
+
+//     // Create backup for posted invoice
+//     try {
+//       await InvoiceBackupService.createPostBackup({
+//         tenantDb: req.tenantDb,
+//         tenantModels: req.tenantModels,
+//         invoice: invoice,
+//         invoiceItems: invoiceItems,
+//         user: req.user,
+//         tenant: req.tenant,
+//         request: {
+//           ip: req.ip || req.connection?.remoteAddress,
+//           userAgent: req.get ? req.get("User-Agent") : null,
+//           requestId: req.headers?.["x-request-id"] || null,
+//         },
+//       });
+//     } catch (backupError) {
+//       console.error("❌ Error creating post backup:", backupError);
+//       // Don't fail the main operation if backup fails
+//     }
+
+//     // Only update invoice_number if we have a valid FBR invoice number
+
+//     if (fbrInvoiceNumber) {
+//       updateData.fbr_invoice_number = fbrInvoiceNumber;
+//     }
+
+//     console.log("Updating invoice with data:", updateData);
+
+//     console.log("FBR Response received:", {
+//       invoiceNumber: postRes.data.invoiceNumber,
+
+//       validationResponse: postRes.data.validationResponse,
+
+//       statusCode: postRes.data.validationResponse?.statusCode,
+//     });
+
+//     await invoice.update(updateData);
+
+//     // Verify the update was successful
+
+//     const updatedInvoice = await Invoice.findByPk(invoice.id);
+
+//     console.log("Invoice updated successfully:", {
+//       id: updatedInvoice.id,
+
+//       original_invoice_number: updatedInvoice.invoice_number,
+
+//       fbr_invoice_number: updatedInvoice.fbr_invoice_number,
+
+//       status: updatedInvoice.status,
+//     });
+
+//     // Call Rajby FBR Reference API after successful FBR submission
+//     console.log("🔍 Rajby API Debug - Checking conditions for submitSavedInvoice:", {
+//       companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
+//       fbrInvoiceNumber: fbrInvoiceNumber,
+//       fbrDetailNo: fbrDetailNo,
+//       hasCompanyInvoiceRefNo: !!updatedInvoice.companyInvoiceRefNo,
+//       hasFbrInvoiceNumber: !!fbrInvoiceNumber,
+//       hasFbrDetailNo: !!fbrDetailNo,
+//       allConditionsMet: !!(updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber && fbrDetailNo)
+//     });
+
+//     if (updatedInvoice.companyInvoiceRefNo && fbrInvoiceNumber && fbrDetailNo) {
+//       try {
+//         // Reload invoice items to get updated InvoiceDetId values
+//         const invoiceItemsWithDetails = await InvoiceItem.findAll({
+//           where: { invoice_id: updatedInvoice.id },
+//           attributes: ['id', 'InvoiceDetId'],
+//           order: [['id', 'ASC']],
+//         });
+
+//         console.log("invoiceItemsWithDetails", invoiceItemsWithDetails);
+
+//         // Get invoiceStatuses from FBR response to map fbrDetailNo to items
+//         const invoiceStatuses = postRes.data?.validationResponse?.invoiceStatuses || postRes.data?.invoiceStatuses || [];
+
+//         // Handle fbrDetailNo: can be a string (single value) or array
+//         const fbrDetailNoArray = Array.isArray(fbrDetailNo) 
+//           ? fbrDetailNo 
+//           : fbrDetailNo 
+//             ? [fbrDetailNo] 
+//             : [];
+
+//         // Prepare invoiceDetails array from invoice items (same logic as createInvoice)
+//         const invoiceDetails = [];
+//         invoiceItemsWithDetails.forEach((item, index) => {
+//           const detInvNo = item.InvoiceDetId;
+//           // Use corresponding fbrDetailNo from invoiceStatuses if available, otherwise use array index
+//           const fbrNo = invoiceStatuses[index]?.invoiceNo || fbrDetailNoArray[index] || fbrDetailNoArray[0] || null;
+
+//           console.log(`🔍 Rajby API Debug - Item ${index}:`, {
+//             detInvNo,
+//             fbrNo,
+//             InvoiceDetId: item.InvoiceDetId,
+//             id: item.id
+//           });
+
+//           if (detInvNo && fbrNo) {
+//             invoiceDetails.push({
+//               detInvNo: detInvNo,
+//               fbrNo: fbrNo, // Use fbrDetailNo from FBR response (invoiceNo from invoiceStatuses)
+//             });
+//           }
+//         });
+
+//         console.log("🔍 Rajby API Debug - Prepared invoiceDetails:", invoiceDetails);
+
+//         // Call Rajby FBR Reference API
+//         const invoiceDateFormatted = updatedInvoice.invoiceDate 
+//           ? (updatedInvoice.invoiceDate instanceof Date 
+//               ? updatedInvoice.invoiceDate.toISOString().split('T')[0]
+//               : new Date(updatedInvoice.invoiceDate).toISOString().split('T')[0])
+//           : null;
+
+//         if (!invoiceDateFormatted) {
+//           console.warn("⚠️ Cannot call Rajby FBR Reference API: invoiceDate is missing");
+//         } else if (invoiceDetails.length === 0) {
+//           console.warn("⚠️ Cannot call Rajby FBR Reference API: No invoice details available (missing fbr_detail_no or invoice items)");
+//         } else {
+//           console.log("🚀 Calling Rajby FBR Reference API with:", {
+//             fbrInvoiceNumber: fbrInvoiceNumber,
+//             companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
+//             invoiceDate: invoiceDateFormatted,
+//             invoiceDetailsCount: invoiceDetails.length
+//           });
+
+//           const rajbyReferenceResult = await submitFBRReference({
+//             fbrInvoiceNumber: fbrInvoiceNumber,
+//             companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
+//             invoiceDate: invoiceDateFormatted,
+//             invoiceDetails: invoiceDetails,
+//           });
+//           console.log("✅ Rajby FBR Reference API called successfully:", rajbyReferenceResult);
+//         }
+//       } catch (rajbyError) {
+//         // Log error but don't fail the invoice submission
+//         console.error("❌ Error calling Rajby FBR Reference API:", rajbyError.message);
+//         console.error("❌ Full error:", rajbyError);
+//         // Continue with the rest of the flow even if Rajby API call fails
+//       }
+//     } else {
+//       console.warn("⚠️ Rajby FBR Reference API not called - missing required fields:", {
+//         hasCompanyInvoiceRefNo: !!updatedInvoice.companyInvoiceRefNo,
+//         hasFbrInvoiceNumber: !!fbrInvoiceNumber,
+//         hasFbrDetailNo: !!fbrDetailNo
+//       });
+//     }
+
+//     // Log audit event for invoice submission to FBR
+//     await logAuditEvent(
+//       req,
+//       "invoice",
+//       invoice.id,
+//       "SUBMIT_TO_FBR",
+//       {
+//         // Basic Invoice Information
+//         invoice_id: invoice.id,
+//         invoice_number: invoice.invoice_number,
+//         system_invoice_id: invoice.system_invoice_id,
+//         status: invoice.status,
+//         fbr_invoice_number: invoice.fbr_invoice_number,
+//         invoiceType: invoice.invoiceType,
+//         invoiceDate: invoice.invoiceDate,
+//         invoiceRefNo: invoice.invoiceRefNo,
+//         companyInvoiceRefNo: invoice.companyInvoiceRefNo,
+//         internal_invoice_no: invoice.internal_invoice_no,
+//         transctypeId: invoice.transctypeId,
+
+//         // Complete Seller Information
+//         sellerNTNCNIC: invoice.sellerNTNCNIC,
+//         sellerFullNTN: invoice.sellerFullNTN,
+//         sellerBusinessName: invoice.sellerBusinessName,
+//         sellerProvince: invoice.sellerProvince,
+//         sellerAddress: invoice.sellerAddress,
+//         sellerCity: invoice.sellerCity,
+
+//         // Complete Buyer Information
+//         buyerNTNCNIC: invoice.buyerNTNCNIC,
+//         buyerBusinessName: invoice.buyerBusinessName,
+//         buyerProvince: invoice.buyerProvince,
+//         buyerAddress: invoice.buyerAddress,
+//         buyerRegistrationType: invoice.buyerRegistrationType,
+
+//         // Financial Information
+//         totalAmount: invoice.totalAmount,
+
+//         // Complete Invoice Items with All Details
+//         invoice_items: invoice.InvoiceItems
+//           ? invoice.InvoiceItems.map((item) => ({
+//               id: item.id,
+//               product_name: item.name,
+//               hsCode: item.hsCode,
+//               InvoiceItemId: item.InvoiceItemId,
+//               InvoiceDetId: item.InvoiceDetId,
+//               productDescription: item.productDescription,
+//               quantity: item.quantity,
+//               rate: item.rate,
+//               uoM: item.uoM,
+//               unitPrice: item.unitPrice,
+//               totalValues: item.totalValues,
+//               valueSalesExcludingST: item.valueSalesExcludingST,
+//               fixedNotifiedValueOrRetailPrice:
+//                 item.fixedNotifiedValueOrRetailPrice,
+//               salesTaxApplicable: item.salesTaxApplicable,
+//               salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
+//               extraTax: item.extraTax,
+//               furtherTax: item.furtherTax,
+//               sroScheduleNo: item.sroScheduleNo,
+//               fedPayable: item.fedPayable,
+//               advanceIncomeTax: item.advanceIncomeTax,
+//               discount: item.discount,
+//               saleType: item.saleType,
+//               sroItemSerialNo: item.sroItemSerialNo,
+//               billOfLadingUoM: item.billOfLadingUoM,
+//             }))
+//           : [],
+//       }, // oldValues (before submission)
+//       {
+//         // Basic Invoice Information
+//         invoice_id: updatedInvoice.id,
+//         invoice_number: updatedInvoice.invoice_number,
+//         system_invoice_id: updatedInvoice.system_invoice_id,
+//         status: updatedInvoice.status,
+//         fbr_invoice_number: updatedInvoice.fbr_invoice_number,
+//         invoiceType: updatedInvoice.invoiceType,
+//         invoiceDate: updatedInvoice.invoiceDate,
+//         invoiceRefNo: updatedInvoice.invoiceRefNo,
+//         companyInvoiceRefNo: updatedInvoice.companyInvoiceRefNo,
+//         internal_invoice_no: updatedInvoice.internal_invoice_no,
+//         transctypeId: updatedInvoice.transctypeId,
+
+//         // Complete Seller Information
+//         sellerNTNCNIC: updatedInvoice.sellerNTNCNIC,
+//         sellerFullNTN: updatedInvoice.sellerFullNTN,
+//         sellerBusinessName: updatedInvoice.sellerBusinessName,
+//         sellerProvince: updatedInvoice.sellerProvince,
+//         sellerAddress: updatedInvoice.sellerAddress,
+//         sellerCity: updatedInvoice.sellerCity,
+
+//         // Complete Buyer Information
+//         buyerNTNCNIC: updatedInvoice.buyerNTNCNIC,
+//         buyerBusinessName: updatedInvoice.buyerBusinessName,
+//         buyerProvince: updatedInvoice.buyerProvince,
+//         buyerAddress: updatedInvoice.buyerAddress,
+//         buyerRegistrationType: updatedInvoice.buyerRegistrationType,
+
+//         // Financial Information
+//         totalAmount: updatedInvoice.totalAmount,
+
+//         // Complete Invoice Items with All Details
+//         invoice_items: invoice.InvoiceItems
+//           ? invoice.InvoiceItems.map((item) => ({
+//               id: item.id,
+//               product_name: item.name,
+//               hsCode: item.hsCode,
+//               InvoiceItemId: item.InvoiceItemId,
+//               InvoiceDetId: item.InvoiceDetId,
+//               productDescription: item.productDescription,
+//               quantity: item.quantity,
+//               rate: item.rate,
+//               uoM: item.uoM,
+//               unitPrice: item.unitPrice,
+//               totalValues: item.totalValues,
+//               valueSalesExcludingST: item.valueSalesExcludingST,
+//               fixedNotifiedValueOrRetailPrice:
+//                 item.fixedNotifiedValueOrRetailPrice,
+//               salesTaxApplicable: item.salesTaxApplicable,
+//               salesTaxWithheldAtSource: item.salesTaxWithheldAtSource,
+//               extraTax: item.extraTax,
+//               furtherTax: item.furtherTax,
+//               sroScheduleNo: item.sroScheduleNo,
+//               fedPayable: item.fedPayable,
+//               advanceIncomeTax: item.advanceIncomeTax,
+//               discount: item.discount,
+//               saleType: item.saleType,
+//               sroItemSerialNo: item.sroItemSerialNo,
+//               billOfLadingUoM: item.billOfLadingUoM,
+//             }))
+//           : [],
+//       }, // newValues (after submission)
+//       {
+//         entityName:
+//           updatedInvoice.invoice_number || updatedInvoice.system_invoice_id,
+//         endpoint: req.originalUrl,
+//         method: req.method,
+//         fbrInvoiceNumber: fbrInvoiceNumber,
+//       }
+//     );
+
+//     res.status(200).json({
+//       success: true,
+
+//       message: "Invoice posted successfully to FBR",
+
+//       data: {
+//         invoice_id: invoice.id,
+
+//         fbr_invoice_number: fbrInvoiceNumber,
+
+//         status: "posted",
+//       },
+//     });
+//   } catch (error) {
+//     console.error("Error submitting invoice to FBR:", error);
+
+//     res.status(500).json({
+//       success: false,
+
+//       message: "Error submitting invoice to FBR",
+
+//       error: error.message,
+//     });
+//   }
+// };
 
 /**
  * Convert Excel date serial number to proper date
@@ -5842,13 +5964,13 @@ export const bulkCreateInvoices = async (req, res) => {
       totalInvoices: invoices.length,
       sampleInvoice: invoices[0]
         ? {
-            invoiceType: invoices[0].invoiceType,
-            invoiceDate: invoices[0].invoiceDate,
-            companyInvoiceRefNo: invoices[0].companyInvoiceRefNo,
-            internalInvoiceNo: invoices[0].internalInvoiceNo,
-            buyerBusinessName: invoices[0].buyerBusinessName,
-            itemsCount: invoices[0].items?.length || 0,
-          }
+          invoiceType: invoices[0].invoiceType,
+          invoiceDate: invoices[0].invoiceDate,
+          companyInvoiceRefNo: invoices[0].companyInvoiceRefNo,
+          internalInvoiceNo: invoices[0].internalInvoiceNo,
+          buyerBusinessName: invoices[0].buyerBusinessName,
+          itemsCount: invoices[0].items?.length || 0,
+        }
         : null,
       sampleInternalInvoiceNo: invoices[0]?.internalInvoiceNo,
       hasInternalInvoiceNo: !!invoices[0]?.internalInvoiceNo,
@@ -5872,15 +5994,15 @@ export const bulkCreateInvoices = async (req, res) => {
     const existingBuyers =
       uniqueBuyerNTNs.length > 0
         ? await Buyer.findAll({
-            where: { buyerNTNCNIC: uniqueBuyerNTNs },
-            attributes: [
-              "buyerNTNCNIC",
-              "buyerBusinessName",
-              "buyerProvince",
-              "buyerAddress",
-              "buyerRegistrationType",
-            ],
-          })
+          where: { buyerNTNCNIC: uniqueBuyerNTNs },
+          attributes: [
+            "buyerNTNCNIC",
+            "buyerBusinessName",
+            "buyerProvince",
+            "buyerAddress",
+            "buyerRegistrationType",
+          ],
+        })
         : [];
 
     // DEBUG: Also check total buyers in database
@@ -5932,13 +6054,13 @@ export const bulkCreateInvoices = async (req, res) => {
     const existingProducts =
       uniqueProductNames.length > 0
         ? await Product.findAll({
-            where: {
-              name: {
-                [Product.sequelize.Sequelize.Op.in]: uniqueProductNames,
-              },
+          where: {
+            name: {
+              [Product.sequelize.Sequelize.Op.in]: uniqueProductNames,
             },
-            attributes: ["id", "name", "description", "hsCode", "uom"],
-          })
+          },
+          attributes: ["id", "name", "description", "hsCode", "uom"],
+        })
         : [];
 
     // Create lookup maps for O(1) access - case insensitive
@@ -7566,7 +7688,7 @@ export const validateInvoiceDataController = async (req, res) => {
     }
 
     // Check if tenant has FBR credentials based on environment
-    const token = environment === "production" 
+    const token = environment === "production"
       ? req.tenant.productionToken || req.tenant.sandboxProductionToken
       : req.tenant.sandboxTestToken || req.tenant.sandboxProductionToken;
 
@@ -7590,12 +7712,12 @@ export const validateInvoiceDataController = async (req, res) => {
     // Check if validation was successful (statusCode "00" means success)
     const validationResponse = validationResult?.validationResponse;
     const isValid = validationResponse?.statusCode === "00";
-    
+
     // Return response in format expected by frontend
     res.status(200).json({
       success: isValid,
-      message: isValid 
-        ? "Invoice data validated successfully" 
+      message: isValid
+        ? "Invoice data validated successfully"
         : validationResponse?.error || "Invoice validation failed",
       status: 200,
       data: validationResult,
@@ -7672,7 +7794,7 @@ export const submitInvoiceDataController = async (req, res) => {
     }
 
     // Check if tenant has FBR credentials based on environment
-    const token = environment === "production" 
+    const token = environment === "production"
       ? req.tenant.productionToken || req.tenant.sandboxProductionToken
       : req.tenant.sandboxTestToken || req.tenant.sandboxProductionToken;
 
@@ -7684,11 +7806,10 @@ export const submitInvoiceDataController = async (req, res) => {
     }
 
     // Import FBR service
-    const { postData } = await import("../../service/FBRService.js");
+    const { submitInvoiceData } = await import("../../service/FBRService.js");
 
     // Call FBR service to submit invoice data
-    const fbrResponse = await postData(
-      "di_data/v1/di/postinvoicedata",
+    const fbrResponse = await submitInvoiceData(
       invoiceData,
       environment,
       token
@@ -7810,16 +7931,16 @@ export const downloadInvoiceTemplateExcel = async (req, res) => {
 
         provinceMap = Array.isArray(provinces)
           ? provinces.reduce((acc, p) => {
-              const desc =
-                p.stateProvinceDesc || p.STATEPROVINCEDESC || p.desc || "";
+            const desc =
+              p.stateProvinceDesc || p.STATEPROVINCEDESC || p.desc || "";
 
-              const code =
-                p.stateProvinceCode || p.STATEPROVINCECODE || p.code || "";
+            const code =
+              p.stateProvinceCode || p.STATEPROVINCECODE || p.code || "";
 
-              if (desc && code) acc[desc.toUpperCase()] = code;
+            if (desc && code) acc[desc.toUpperCase()] = code;
 
-              return acc;
-            }, {})
+            return acc;
+          }, {})
           : {};
 
         const tenantProvince = (
@@ -8022,10 +8143,10 @@ export const downloadInvoiceTemplateExcel = async (req, res) => {
 
                 return rateDesc
                   ? {
-                      id: rateId ? String(rateId) : null,
+                    id: rateId ? String(rateId) : null,
 
-                      desc: String(rateDesc).trim(),
-                    }
+                    desc: String(rateDesc).trim(),
+                  }
                   : null;
               })
 
@@ -8091,10 +8212,10 @@ export const downloadInvoiceTemplateExcel = async (req, res) => {
 
                 return rateDesc
                   ? {
-                      id: rateId ? String(rateId) : null,
+                    id: rateId ? String(rateId) : null,
 
-                      desc: String(rateDesc).trim(),
-                    }
+                    desc: String(rateDesc).trim(),
+                  }
                   : null;
               })
 
@@ -9201,17 +9322,17 @@ export const downloadInvoiceTemplateExcel = async (req, res) => {
 
       // item_sroItemSerialNo dropdown
       template.getCell(r, headerIndex("item_sroItemSerialNo")).dataValidation =
-        {
-          type: "list",
-          allowBlank: true,
-          formulae: [
-            `$${getColLetter(allSROItemCol)}$${allSROItemRange.startRow}:$${getColLetter(allSROItemCol)}$${allSROItemRange.endRow}`,
-          ],
-          showErrorMessage: true,
-          errorStyle: "warning",
-          errorTitle: "Invalid SRO Item",
-          error: "Select a valid SRO Item from the dropdown list.",
-        };
+      {
+        type: "list",
+        allowBlank: true,
+        formulae: [
+          `$${getColLetter(allSROItemCol)}$${allSROItemRange.startRow}:$${getColLetter(allSROItemCol)}$${allSROItemRange.endRow}`,
+        ],
+        showErrorMessage: true,
+        errorStyle: "warning",
+        errorTitle: "Invalid SRO Item",
+        error: "Select a valid SRO Item from the dropdown list.",
+      };
 
       // item_uoM dropdown
       template.getCell(r, headerIndex("item_uoM")).dataValidation = {
