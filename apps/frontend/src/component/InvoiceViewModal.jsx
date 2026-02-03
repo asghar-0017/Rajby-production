@@ -434,6 +434,18 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
                       p: 1,
                     }}
                   >
+                    UOM
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      bgcolor: "#2c7c93",
+                      color: "white",
+                      fontWeight: "bold",
+                      textAlign: "center",
+                      fontSize: "11px",
+                      p: 1,
+                    }}
+                  >
                     DC Doc Id
                   </TableCell>
                   <TableCell
@@ -635,6 +647,16 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
                         p: 1,
                       }}
                     >
+                      {item.uoM || item.uom || "N/A"}
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        border: "1px solid #157492",
+                        textAlign: "center",
+                        fontSize: "11px",
+                        p: 1,
+                      }}
+                    >
                       {item.dcDocId || item.item_dcDocId || "N/A"}
                     </TableCell>
                     <TableCell
@@ -742,12 +764,12 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
                       }}
                     >
                       {item.advanceIncomeTax === null ||
-                      item.advanceIncomeTax === undefined ||
-                      item.advanceIncomeTax === ""
+                        item.advanceIncomeTax === undefined ||
+                        item.advanceIncomeTax === ""
                         ? "0"
                         : formatNumberWithCommas(
-                            parseFloat(item.advanceIncomeTax)
-                          )}
+                          parseFloat(item.advanceIncomeTax)
+                        )}
                     </TableCell>
                     <TableCell
                       sx={{
