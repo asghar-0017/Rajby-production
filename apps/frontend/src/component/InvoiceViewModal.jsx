@@ -92,6 +92,10 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
     (sum, item) => sum + parseFloat(item.totalValues || 0),
     0
   );
+  const totalQuantity = (invoice.items || []).reduce(
+    (sum, item) => sum + parseFloat(item.quantity || 0),
+    0
+  );
 
   // Convert number to words function with paisa support
   const convertToWords = (num) => {
@@ -434,18 +438,6 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
                       p: 1,
                     }}
                   >
-                    UOM
-                  </TableCell>
-                  <TableCell
-                    sx={{
-                      bgcolor: "#2c7c93",
-                      color: "white",
-                      fontWeight: "bold",
-                      textAlign: "center",
-                      fontSize: "11px",
-                      p: 1,
-                    }}
-                  >
                     DC Doc Id
                   </TableCell>
                   <TableCell
@@ -647,16 +639,6 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
                         p: 1,
                       }}
                     >
-                      {item.uoM || item.uom || "N/A"}
-                    </TableCell>
-                    <TableCell
-                      sx={{
-                        border: "1px solid #157492",
-                        textAlign: "center",
-                        fontSize: "11px",
-                        p: 1,
-                      }}
-                    >
                       {item.dcDocId || item.item_dcDocId || "N/A"}
                     </TableCell>
                     <TableCell
@@ -829,7 +811,10 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
               }}
             >
               <Typography variant="body2" sx={{ mb: 1 }}>
-                Sub Total (Excl. Tax): {formatNumberWithCommas(subTotal)}
+                Sub Total (Excl. Tax)    : {formatNumberWithCommas(subTotal)}
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Total Quantity ( KG ): {formatNumberWithCommas(totalQuantity)}
               </Typography>
               <Typography variant="body2" sx={{ mb: 1 }}>
                 Sales Tax (GST): {formatNumberWithCommas(gst)}

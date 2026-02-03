@@ -3924,11 +3924,8 @@ export const printInvoice = async (req, res) => {
       itemsTableRows += `
         <tr class="total-row">
           <td colspan="4"><bold>Total Items: ${plainInvoice.items.length}</bold></td>
-          <td colspan="2" class="text-right">
-            <bold>Total Quantity: ${plainInvoice.items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0)}</bold>
-          </td>
-          <td colspan="2"><bold>Amount Excl. ST</bold></td>
-          <td><bold>${totalAmount.toLocaleString()}</bold></td>
+          <td colspan="4"></td>
+          <!-- Total Quantity removed from here -->
         </tr>
       `;
     } else {
@@ -4129,6 +4126,14 @@ export const printInvoice = async (req, res) => {
             return "18"; // Default to 18% if no rate found
           })()
           : "18"
+      )
+      .replace(
+        /\{\{totalQuantity\}\}/g,
+        plainInvoice.items && plainInvoice.items.length > 0
+          ? plainInvoice.items
+            .reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0)
+            .toLocaleString() // Optional: Format with commas if needed
+          : "0"
       )
       .replace(
         /\{\{totalCartage\}\}/g,
