@@ -811,10 +811,10 @@ const InvoiceViewModal = ({ open, onClose, invoice, onPrint }) => {
               }}
             >
               <Typography variant="body2" sx={{ mb: 1 }}>
-                Sub Total (Excl. Tax)    : {formatNumberWithCommas(subTotal)}
+                Total Quantity ( KG ): {formatNumberWithCommas(totalQuantity)}
               </Typography>
               <Typography variant="body2" sx={{ mb: 1 }}>
-                Total Quantity ( KG ): {formatNumberWithCommas(totalQuantity)}
+                Sub Total (Excl. Tax)    : {formatNumberWithCommas(subTotal)}
               </Typography>
               <Typography variant="body2" sx={{ mb: 1 }}>
                 Sales Tax (GST): {formatNumberWithCommas(gst)}
