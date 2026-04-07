@@ -416,12 +416,13 @@ export default function BasicTable() {
       ? dayjs(invoice.invoiceDate).format("YYYY-MM-DD")
       : dayjs().format("YYYY-MM-DD");
 
-    setAtlSyncLoading((prev) => ({ ...prev, [invoiceId]: true }));
+    const currentDate = dayjs().format("YYYY-MM-DD");
+
 
     try {
       const atlResult = await checkRegistrationStatusWithDate(
         invoice.buyerNTNCNIC,
-        invoiceDateForSync
+        currentDate
       );
 
       setAtlSyncStatus((prev) => ({
@@ -429,7 +430,7 @@ export default function BasicTable() {
         [invoiceId]: {
           ...atlResult,
           checkedAt: new Date().toISOString(),
-          invoiceDateUsed: invoiceDateForSync,
+          invoiceDateUsed: currentDate,
         },
       }));
 
