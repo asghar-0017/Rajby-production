@@ -10,7 +10,7 @@ SSH into your production server and run:
 
 ```bash
 # Test basic connectivity
-curl -v --max-time 10 http://103.104.84.43:5000/api/Auth/login
+curl -v --max-time 10 http://116.0.43.82:5000/api/Auth/login
 
 # Or test with telnet
 telnet 103.104.84.43 5000
@@ -50,7 +50,7 @@ If direct connection is blocked, route through a proxy:
 
 2. Update environment variables:
 ```env
-RAJBY_API_BASE_URL=http://103.104.84.43:5000
+RAJBY_API_BASE_URL=http://116.0.43.82:5000
 HTTP_PROXY=http://your-proxy-server:port
 HTTPS_PROXY=http://your-proxy-server:port
 ```

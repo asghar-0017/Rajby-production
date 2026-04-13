@@ -12,13 +12,13 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
+const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://116.0.43.82:5000";
 const RAJBY_USERNAME = process.env.RAJBY_USERNAME || "innovative";
 const RAJBY_PASSWORD = process.env.RAJBY_PASSWORD || "K7#mP!vL9qW2xR$8";
 
 async function testConnectivity() {
   console.log("🔍 Testing Rajby API Connectivity");
-  console.log("=" .repeat(50));
+  console.log("=".repeat(50));
   console.log(`Target URL: ${RAJBY_API_BASE_URL}`);
   console.log(`Username: ${RAJBY_USERNAME}`);
   console.log("");
@@ -103,7 +103,7 @@ testConnectivity()
       console.log("\n📋 Troubleshooting steps:");
       console.log("   1. Check if the production server can reach 103.104.84.43:5000");
       console.log("   2. Verify firewall rules allow outbound connections to port 5000");
-      console.log("   3. Test from production server: curl http://103.104.84.43:5000/api/Auth/login");
+      console.log("   3. Test from production server: curl http://116.0.43.82:5000/api/Auth/login");
       console.log("   4. Check if the Rajby API server is accessible from your network");
       console.log("   5. Consider using a different URL if the API is behind a load balancer");
     }

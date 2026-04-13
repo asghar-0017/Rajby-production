@@ -32,7 +32,7 @@ export async function getRajbyToken(forceRefresh = false) {
     console.log("Rajby token cache expired or missing - calling login API to get fresh token");
   }
 
-  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
+  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://116.0.43.82:5000";
   const RAJBY_USERNAME = process.env.RAJBY_USERNAME || "innovative";
   const RAJBY_PASSWORD = process.env.RAJBY_PASSWORD || "K7#mP!vL9qW2xR$8";
 
@@ -159,7 +159,7 @@ export async function deleteRajbyInvoice(companyInvoiceRefNo, retries = 1) {
   }
 
   const axios = (await import("axios")).default;
-  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
+  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://116.0.43.82:5000";
 
   // Always call login API first to get fresh token
   let token;
@@ -271,7 +271,7 @@ export async function submitFBRReference({
 
 
   const axios = (await import("axios")).default;
-  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
+  const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://116.0.43.82:5000";
 
   // Always call login API first to get fresh token
   let token;
