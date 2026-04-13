@@ -52,7 +52,7 @@ const testBulkUpload = async () => {
     });
 
     const response = await fetch(
-      "http://116.0.43.82:5155/api/tenant/tenant_1756409312403_uo1hmt4tz/invoices/bulk",
+      "http://143.198.95.2:5155/api/tenant/tenant_1756409312403_uo1hmt4tz/invoices/bulk",
       {
         method: "POST",
         headers: {
