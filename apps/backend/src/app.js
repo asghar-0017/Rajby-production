@@ -27,6 +27,7 @@ import invoiceBackupRoutes from "./routes/invoiceBackupRoutes.js";
 import hsCodeRoutes from "./routes/hsCodeRoutes.js";
 import performanceRoutes from "./routes/performanceRoutes.js";
 import rajbyRoutes from "./routes/rajbyRoutes.js";
+import { initSubscriptionCron, subscriptionState } from "./utils/subscriptionCron.js";
 
 dotenv.config();
 
@@ -96,6 +97,11 @@ app.use(
   "/invoices",
   express.static(path.join(process.cwd(), "public/invoices"))
 );
+// Subscription status route
+app.get("/api/system/status", (req, res) => {
+  res.json(subscriptionState);
+});
+
 // MySQL Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/tenant-auth", tenantAuthRoutes);
@@ -193,6 +199,9 @@ const startServer = async () => {
     // Initialize MySQL instead of MongoDB
     await mysqlConnector({}, logger);
     console.log("✅ Connected to MySQL multi-tenant database system");
+
+    // Initialize subscription tracking cron job
+    initSubscriptionCron();
 
     // Start the server first
     const port = process.env.PORT || 5150;

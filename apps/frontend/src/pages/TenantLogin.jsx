@@ -8,11 +8,14 @@ import {
   Divider,
   Stack,
   Alert,
+  CircularProgress,
 } from "@mui/material";
 import { useTenant } from "../Context/TenantProvider";
 import Footer from "../component/Footer";
+import { useSubscription } from "../hooks/useSubscription";
 
 const TenantLogin = () => {
+  const { isSuspended, showWarning, daysLeft, endDateFormatted, suspendMessage, loading: subscriptionLoading } = useSubscription();
   const [formData, setFormData] = useState({
     sellerNTNCNIC: "",
     password: "",
@@ -63,86 +66,125 @@ const TenantLogin = () => {
           border: "1px solid rgba(255, 255, 255, 0.18)",
         }}
       >
-        <Typography
-          variant="h4"
-          align="center"
-          gutterBottom
-          sx={{
-            fontWeight: 900,
-            color: "#3f51b5",
-            mb: 3,
-            textShadow: "0 2px 8px #e3e3e3",
-          }}
-        >
-          Tenant Login
-        </Typography>
-
-        <Divider sx={{ mb: 3, borderColor: "#3f51b5" }} />
-
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }}>
-            {error}
-          </Alert>
-        )}
-
-        <Box component="form" onSubmit={handleSubmit}>
-          <Stack spacing={3}>
-            <TextField
-              label="Seller NTN/CNIC"
-              name="sellerNTNCNIC"
-              value={formData.sellerNTNCNIC}
-              onChange={handleChange}
-              fullWidth
-              required
-              variant="outlined"
-              color="primary"
-              placeholder="Enter your NTN/CNIC"
-            />
-
-            <TextField
-              label="Password"
-              name="password"
-              type="password"
-              value={formData.password}
-              onChange={handleChange}
-              fullWidth
-              required
-              variant="outlined"
-              color="primary"
-              placeholder="Enter your password"
-            />
-
-            <Button
-              type="submit"
-              variant="contained"
-              color="primary"
-              size="small"
-              fullWidth
-              disabled={loading}
+        {!isSuspended && !subscriptionLoading && (
+          <>
+            <Typography
+              variant="h4"
+              align="center"
+              gutterBottom
               sx={{
-                fontWeight: 600,
-                fontSize: "13px",
-                py: 1,
-                height: 36,
-                borderRadius: 2,
-                boxShadow: "0 2px 8px rgba(63, 81, 181, 0.3)",
-                "&:hover": {
-                  boxShadow: "0 4px 12px rgba(63, 81, 181, 0.4)",
-                },
+                fontWeight: 900,
+                color: "#3f51b5",
+                mb: 3,
+                textShadow: "0 2px 8px #e3e3e3",
               }}
             >
-              {loading ? "Logging in..." : "Login"}
-            </Button>
-
-            <Typography
-              variant="body2"
-              align="center"
-              sx={{ color: "#666", mt: 2 }}
-            >
-              Use your NTN/CNIC as password for demo purposes
+              Tenant Login
             </Typography>
-          </Stack>
-        </Box>
+            <Divider sx={{ mb: 3, borderColor: "#3f51b5" }} />
+          </>
+        )}
+
+        {subscriptionLoading ? (
+          <Box sx={{ py: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <CircularProgress size={24} sx={{ color: '#3f51b5', mb: 1 }} />
+            <Typography variant="body2" color="text.secondary">Checking system status...</Typography>
+          </Box>
+        ) : isSuspended ? (
+          <Box
+            sx={{
+              p: 3,
+              bgcolor: 'rgba(211, 47, 47, 0.05)',
+              borderRadius: 2,
+              border: '1px solid #d32f2f',
+              mt: 2,
+              textAlign: 'center'
+            }}
+          >
+            <Typography
+              variant="body1"
+              sx={{
+                color: "#d32f2f",
+                fontWeight: 600,
+                lineHeight: 1.6
+              }}
+            >
+              {suspendMessage}
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            {showWarning && (
+              <Alert severity="error" sx={{ mb: 3 }}>
+                Reminder: Your subscription expires in {daysLeft} days on {endDateFormatted}. The system will be suspended automatically.
+              </Alert>
+            )}
+            {error && (
+              <Alert severity="error" sx={{ mb: 3 }}>
+                {error}
+              </Alert>
+            )}
+
+            <Box component="form" onSubmit={handleSubmit}>
+              <Stack spacing={3}>
+                <TextField
+                  label="Seller NTN/CNIC"
+                  name="sellerNTNCNIC"
+                  value={formData.sellerNTNCNIC}
+                  onChange={handleChange}
+                  fullWidth
+                  required
+                  variant="outlined"
+                  color="primary"
+                  placeholder="Enter your NTN/CNIC"
+                />
+
+                <TextField
+                  label="Password"
+                  name="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  fullWidth
+                  required
+                  variant="outlined"
+                  color="primary"
+                  placeholder="Enter your password"
+                />
+
+                <Button
+                  type="submit"
+                  variant="contained"
+                  color="primary"
+                  size="small"
+                  fullWidth
+                  disabled={loading}
+                  sx={{
+                    fontWeight: 600,
+                    fontSize: "13px",
+                    py: 1,
+                    height: 36,
+                    borderRadius: 2,
+                    boxShadow: "0 2px 8px rgba(63, 81, 181, 0.3)",
+                    "&:hover": {
+                      boxShadow: "0 4px 12px rgba(63, 81, 181, 0.4)",
+                    },
+                  }}
+                >
+                  {loading ? "Logging in..." : "Login"}
+                </Button>
+
+                <Typography
+                  variant="body2"
+                  align="center"
+                  sx={{ color: "#666", mt: 2 }}
+                >
+                  Use your NTN/CNIC as password for demo purposes
+                </Typography>
+              </Stack>
+            </Box>
+          </>
+        )}
 
       </Paper>
       <Footer />

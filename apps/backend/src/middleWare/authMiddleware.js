@@ -1,7 +1,26 @@
 import jwt from "jsonwebtoken";
 import AdminSession from "../model/mysql/AdminSession.js";
+import { subscriptionState } from "../utils/subscriptionCron.js";
+
+export const checkSuspension = (req, res, next) => {
+  if (subscriptionState.isSuspended) {
+    return res.status(403).json({
+      success: false,
+      message: subscriptionState.suspendMessage,
+      isSuspended: true,
+    });
+  }
+  next();
+};
 
 export const authenticateToken = async (req, res, next) => {
+  if (subscriptionState.isSuspended) {
+    return res.status(403).json({
+      success: false,
+      message: subscriptionState.suspendMessage,
+      isSuspended: true,
+    });
+  }
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(" ")[1];

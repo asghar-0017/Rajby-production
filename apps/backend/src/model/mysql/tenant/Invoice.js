@@ -78,6 +78,11 @@ export const createInvoiceModel = (sequelize) => {
         type: DataTypes.STRING(100),
         allowNull: true,
       },
+      sourceInvoiceNo: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
+        unique: true,
+      },
       internal_invoice_no: {
         type: DataTypes.STRING(100),
         allowNull: true,

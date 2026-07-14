@@ -1,12 +1,12 @@
 import express from 'express';
 import * as tenantAuthController from '../controller/mysql/tenantAuthController.js';
 import { identifyTenant } from '../middleWare/tenantMiddleware.js';
-import { authenticateToken } from '../middleWare/authMiddleware.js';
+import { authenticateToken, checkSuspension } from '../middleWare/authMiddleware.js';
 
 const router = express.Router();
 
 // Public routes (no authentication required)
-router.post('/login', tenantAuthController.tenantLogin);
+router.post('/login', checkSuspension, tenantAuthController.tenantLogin);
 router.get('/verify-token', tenantAuthController.verifyTenantToken);
 
 // Protected routes (require tenant authentication)

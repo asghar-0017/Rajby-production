@@ -53,6 +53,7 @@ import PasswordUpdateMenuMount from "./PasswordUpdateMenuMount";
 import ProfileMenuMount from "./ProfileMenuMount";
 import PermissionGate from "./PermissionGate";
 import { usePermissions } from "../hooks/usePermissions";
+import { useSubscription } from "../hooks/useSubscription";
 // import productionForm  from "../pages/productionForm"
 
 const drawerWidth = 240;
@@ -118,6 +119,7 @@ export default function Sidebar({ onLogout }) {
   const theme = useTheme();
   const [open, setOpen] = React.useState(true); // Set to true for permanently open
   const { user } = useAuth();
+  const { showWarning, isSuspended, daysLeft, endDateFormatted } = useSubscription();
   const { selectedTenant, isTenantSelected } = useTenantSelection();
   const { hasPermission, isAdmin } = usePermissions();
   const navigate = useNavigate();
@@ -534,6 +536,25 @@ export default function Sidebar({ onLogout }) {
 
       <Main open={open}>
         <DrawerHeader />
+        {showWarning && !isSuspended && (
+          <Box
+            sx={{
+              backgroundColor: "#202223",
+              color: "white",
+              py: 1.5,
+              px: 3,
+              mb: 2,
+              borderRadius: "4px",
+              display: "flex",
+              alignItems: "center",
+              fontSize: "14px",
+              fontWeight: 500,
+              fontFamily: '"Kumbh Sans", sans-serif',
+            }}
+          >
+            ⚠️ Reminder: Your subscription expires in {daysLeft} days on {endDateFormatted}. The system will be suspended automatically.
+          </Box>
+        )}
         <Outlet />
         <Footer />
         {/* Password Update Modal */}

@@ -9,13 +9,17 @@ import {
   Avatar,
   InputAdornment,
   IconButton,
+  CircularProgress,
+  Alert,
 } from "@mui/material";
 import LockIcon from "@mui/icons-material/Lock";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import VisibilityOffIcon from "@mui/icons-material/VisibilityOff";
 import { useAuth } from "../Context/AuthProvider";
+import { useSubscription } from "../hooks/useSubscription";
 
 const Login = ({ onLogin }) => {
+  const { isSuspended, showWarning, daysLeft, endDateFormatted, suspendMessage, loading: subscriptionLoading } = useSubscription();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -43,7 +47,7 @@ const Login = ({ onLogin }) => {
     <Box
       sx={{
         p: 3,
-        bgcolor: 'rgba(237, 91, 42, 0.1)',
+        bgcolor: 'rgba(237, 91, 42, 0.05)',
         borderRadius: 2,
         border: '1px solid #ED5B2A',
         mt: 2,
@@ -58,7 +62,7 @@ const Login = ({ onLogin }) => {
           lineHeight: 1.6
         }}
       >
-        Due to the non-signing of the agreement, the system has been temporarily suspended. Please contact our legal department regarding service revocation
+        {suspendMessage}
       </Typography>
     </Box>
   );
@@ -94,144 +98,159 @@ const Login = ({ onLogin }) => {
             justifyContent: "center",
           }}
         >
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-start",
-              mb: 2,
-            }}
-          >
-            <Typography
-              variant="h4"
-              component="p"
+          {!isSuspended && !subscriptionLoading && (
+            <Box
               sx={{
-                fontSize: { xs: "1.5rem", sm: "2rem" },
-                fontWeight: 600,
-                mb: 0.5,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                mb: 2,
               }}
             >
-              Welcome
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{
-                color: "gray",
-                fontSize: { xs: "0.8rem", sm: "0.875rem" },
-              }}
-            >
-              Enter your details here
-            </Typography>
-          </Box>
-
-          {/* {renderSuspensionMessage()} */}
-
-
-          <form onSubmit={handleSubmit}>
-            <TextField
-              label="Email"
-              variant="outlined"
-              size="small"
-              fullWidth
-              margin="normal"
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 2,
-                },
-              }}
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-            <TextField
-              label="Password"
-              type={showPassword ? "text" : "password"}
-              variant="outlined"
-              size="small"
-              fullWidth
-              margin="normal"
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 2,
-                },
-              }}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label="toggle password visibility"
-                      onClick={handleTogglePassword}
-                      edge="end"
-                      disableRipple
-                      sx={{
-                        "&:focus": {
-                          outline: "none",
-                        },
-                      }}
-                    >
-                      {showPassword ? (
-                        <VisibilityOffIcon />
-                      ) : (
-                        <VisibilityIcon />
-                      )}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-            {error && (
               <Typography
-                color="error"
-                variant="body2"
-                sx={{ mt: 1, fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
-              >
-                {error}
-              </Typography>
-            )}
-            <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
-              <Button
-                onClick={() => navigate("/email-verification")}
+                variant="h4"
+                component="p"
                 sx={{
-                  color: "#ED5B2A",
-                  textDecoration: "none",
-                  fontSize: { xs: "0.65rem", sm: "0.7rem" },
+                  fontSize: { xs: "1.5rem", sm: "2rem" },
                   fontWeight: 600,
-                  textTransform: "none",
-                  "&:hover": {
-                    backgroundColor: "transparent",
-                    textDecoration: "underline",
-                  },
+                  mb: 0.5,
                 }}
               >
-                Forgot Password?
-              </Button>
+                Welcome
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: "gray",
+                  fontSize: { xs: "0.8rem", sm: "0.875rem" },
+                }}
+              >
+                Enter your details here
+              </Typography>
             </Box>
-            <Button
-              type="submit"
-              variant="contained"
-              size="small"
-              fullWidth
-              disabled={loading}
-              sx={{
-                mt: { xs: 3, sm: 5 },
-                backgroundColor: "#2655A2",
-                height: { xs: 40, sm: 44 },
-                borderRadius: 2,
-                fontSize: { xs: "0.875rem", sm: "1rem" },
-                "&:hover": {
-                  backgroundColor: "#1e4082",
-                },
-                "&:disabled": {
-                  backgroundColor: "#ccc",
-                },
-              }}
-            >
-              {loading ? "Logging in..." : "Login"}
-            </Button>
-          </form>
+          )}
+
+          {subscriptionLoading ? (
+            <Box sx={{ py: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <CircularProgress size={24} sx={{ color: '#2655A2', mb: 1 }} />
+              <Typography variant="body2" color="text.secondary">Checking system status...</Typography>
+            </Box>
+          ) : isSuspended ? (
+            renderSuspensionMessage()
+          ) : (
+            <>
+              {showWarning && (
+                <Alert severity="error" sx={{ mb: 2, textAlign: 'left', width: '100%' }}>
+                  Reminder: Your subscription expires in {daysLeft} days on {endDateFormatted}. The system will be suspended automatically.
+                </Alert>
+              )}
+              <form onSubmit={handleSubmit}>
+                <TextField
+                  label="Email"
+                  variant="outlined"
+                  size="small"
+                  fullWidth
+                  margin="normal"
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 2,
+                    },
+                  }}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+                <TextField
+                  label="Password"
+                  type={showPassword ? "text" : "password"}
+                  variant="outlined"
+                  size="small"
+                  fullWidth
+                  margin="normal"
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 2,
+                    },
+                  }}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={handleTogglePassword}
+                          edge="end"
+                          disableRipple
+                          sx={{
+                            "&:focus": {
+                              outline: "none",
+                            },
+                          }}
+                        >
+                          {showPassword ? (
+                            <VisibilityOffIcon />
+                          ) : (
+                            <VisibilityIcon />
+                          )}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+                {error && (
+                  <Typography
+                    color="error"
+                    variant="body2"
+                    sx={{ mt: 1, fontSize: { xs: "0.75rem", sm: "0.875rem" } }}
+                  >
+                    {error}
+                  </Typography>
+                )}
+                <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
+                  <Button
+                    onClick={() => navigate("/email-verification")}
+                    sx={{
+                      color: "#ED5B2A",
+                      textDecoration: "none",
+                      fontSize: { xs: "0.65rem", sm: "0.7rem" },
+                      fontWeight: 600,
+                      textTransform: "none",
+                      "&:hover": {
+                        backgroundColor: "transparent",
+                        textDecoration: "underline",
+                      },
+                    }}
+                  >
+                    Forgot Password?
+                  </Button>
+                </Box>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  size="small"
+                  fullWidth
+                  disabled={loading}
+                  sx={{
+                    mt: { xs: 3, sm: 5 },
+                    backgroundColor: "#2655A2",
+                    height: { xs: 40, sm: 44 },
+                    borderRadius: 2,
+                    fontSize: { xs: "0.875rem", sm: "1rem" },
+                    "&:hover": {
+                      backgroundColor: "#1e4082",
+                    },
+                    "&:disabled": {
+                      backgroundColor: "#ccc",
+                    },
+                  }}
+                >
+                  {loading ? "Logging in..." : "Login"}
+                </Button>
+              </form>
+            </>
+          )}
 
         </Paper>
       </div>

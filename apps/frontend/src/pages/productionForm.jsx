@@ -870,6 +870,7 @@ export default function ProductionFoam() {
       const cleanedData = {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
+        sourceInvoiceNo: formData.companyInvoiceRefNo,
         items: cleanedItems,
       };
 

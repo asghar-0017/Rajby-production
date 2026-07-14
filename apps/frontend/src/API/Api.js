@@ -231,4 +231,42 @@ export const deleteRajbyInvoice = async (companyInvoiceRefNo) => {
   return response;
 };
 
+// Add response interceptor to intercept 409 Conflict globally
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  async (error) => {
+    if (error.response && error.response.data && error.response.data.isSuspended) {
+      localStorage.clear();
+      window.location.href = "/login";
+      return Promise.reject(error);
+    }
+    if (error.response && error.response.status === 409) {
+      const url = error.config.url || "";
+      const isSaveValidateOrSubmit = url.includes("/invoices/save") ||
+        url.includes("/invoices/save-validate") ||
+        url.includes("/validate-invoice") ||
+        url.includes("/submit-invoice") ||
+        url.includes("/invoices/bulk") ||
+        url.endsWith("/invoices"); // Submit endpoint
+
+      if (isSaveValidateOrSubmit) {
+        try {
+          const { default: Swal } = await import("sweetalert2");
+          Swal.fire({
+            icon: "warning",
+            title: "Duplicate Reference Number",
+            text: "This Company Invoice Reference Number already exists.",
+            confirmButtonColor: "#2A69B0",
+          });
+        } catch (swalErr) {
+          console.error("SweetAlert failed to load:", swalErr);
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export { API_CONFIG, api };

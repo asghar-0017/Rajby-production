@@ -24,8 +24,10 @@ import {
   Visibility,
   VisibilityOff,
 } from "@mui/icons-material";
+import { useSubscription } from "../hooks/useSubscription";
 
 const UserLogin = () => {
+  const { isSuspended, showWarning, daysLeft, endDateFormatted, suspendMessage, loading: subscriptionLoading } = useSubscription();
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -127,116 +129,154 @@ const UserLogin = () => {
             borderRadius: 2,
           }}
         >
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              mb: 3,
-            }}
-          >
-            <BusinessIcon
+          {!isSuspended && !subscriptionLoading && (
+            <Box
               sx={{
-                fontSize: 48,
-                color: "primary.main",
-                mb: 2,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                mb: 3,
               }}
-            />
-            <Typography component="h1" variant="h4" gutterBottom>
-              User Login
-            </Typography>
-            <Typography variant="body2" color="text.secondary" align="center">
-              Access your assigned company dashboard
-            </Typography>
-          </Box>
-
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
+            >
+              <BusinessIcon
+                sx={{
+                  fontSize: 48,
+                  color: "primary.main",
+                  mb: 2,
+                }}
+              />
+              <Typography component="h1" variant="h4" gutterBottom>
+                User Login
+              </Typography>
+              <Typography variant="body2" color="text.secondary" align="center">
+                Access your assigned company dashboard
+              </Typography>
+            </Box>
           )}
 
-          <Box component="form" onSubmit={handleSubmit}>
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              id="email"
-              label="Email Address"
-              name="email"
-              autoComplete="email"
-              autoFocus
-              value={formData.email}
-              onChange={handleChange}
-              InputProps={{
-                startAdornment: (
-                  <PersonIcon sx={{ mr: 1, color: "text.secondary" }} />
-                ),
-              }}
-            />
-            <TextField
-              margin="normal"
-              required
-              fullWidth
-              name="password"
-              label="Password"
-              type={showPassword ? "text" : "password"}
-              id="password"
-              autoComplete="current-password"
-              value={formData.password}
-              onChange={handleChange}
-              InputProps={{
-                startAdornment: (
-                  <LockIcon sx={{ mr: 1, color: "text.secondary" }} />
-                ),
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label="toggle password visibility"
-                      onClick={() => setShowPassword(!showPassword)}
-                      edge="end"
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-            <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              sx={{ mt: 3, mb: 2 }}
-              disabled={loading}
-            >
-              {loading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                "Sign In"
-              )}
-            </Button>
-          </Box>
-
-          <Box sx={{ mt: 3, textAlign: "center" }}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Need access? Contact your administrator.
-            </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => navigate("/login")}
+          {subscriptionLoading ? (
+            <Box sx={{ py: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+              <CircularProgress size={24} sx={{ color: '#2A69B0', mb: 1 }} />
+              <Typography variant="body2" color="text.secondary">Checking system status...</Typography>
+            </Box>
+          ) : isSuspended ? (
+            <Box
               sx={{
-                borderColor: "#2A69B0",
-                color: "#2A69B0",
-                "&:hover": {
-                  borderColor: "#1e4a7a",
-                  backgroundColor: "rgba(42, 105, 176, 0.04)",
-                },
+                p: 3,
+                bgcolor: 'rgba(211, 47, 47, 0.05)',
+                borderRadius: 2,
+                border: '1px solid #d32f2f',
+                mt: 2,
+                textAlign: 'center'
               }}
             >
-              Admin Login
-            </Button>
-          </Box>
+              <Typography
+                variant="body1"
+                sx={{
+                  color: "#d32f2f",
+                  fontWeight: 600,
+                  lineHeight: 1.6
+                }}
+              >
+                {suspendMessage}
+              </Typography>
+            </Box>
+          ) : (
+            <>
+              {showWarning && (
+                <Alert severity="error" sx={{ mb: 2, width: '100%' }}>
+                  Reminder: Your subscription expires in {daysLeft} days on {endDateFormatted}. The system will be suspended automatically.
+                </Alert>
+              )}
+              {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {error}
+                </Alert>
+              )}
+
+              <Box component="form" onSubmit={handleSubmit}>
+                <TextField
+                  margin="normal"
+                  required
+                  fullWidth
+                  id="email"
+                  label="Email Address"
+                  name="email"
+                  autoComplete="email"
+                  autoFocus
+                  value={formData.email}
+                  onChange={handleChange}
+                  InputProps={{
+                    startAdornment: (
+                      <PersonIcon sx={{ mr: 1, color: "text.secondary" }} />
+                    ),
+                  }}
+                />
+                <TextField
+                  margin="normal"
+                  required
+                  fullWidth
+                  name="password"
+                  label="Password"
+                  type={showPassword ? "text" : "password"}
+                  id="password"
+                  autoComplete="current-password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  InputProps={{
+                    startAdornment: (
+                      <LockIcon sx={{ mr: 1, color: "text.secondary" }} />
+                    ),
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={() => setShowPassword(!showPassword)}
+                          edge="end"
+                        >
+                          {showPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+                <Button
+                  type="submit"
+                  fullWidth
+                  variant="contained"
+                  sx={{ mt: 3, mb: 2 }}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <CircularProgress size={24} color="inherit" />
+                  ) : (
+                    "Sign In"
+                  )}
+                </Button>
+              </Box>
+
+              <Box sx={{ mt: 3, textAlign: "center" }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Need access? Contact your administrator.
+                </Typography>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => navigate("/login")}
+                  sx={{
+                    borderColor: "#2A69B0",
+                    color: "#2A69B0",
+                    "&:hover": {
+                      borderColor: "#1e4a7a",
+                      backgroundColor: "rgba(42, 105, 176, 0.04)",
+                    },
+                  }}
+                >
+                  Admin Login
+                </Button>
+              </Box>
+            </>
+          )}
         </Paper>
       </Box>
     </Container>

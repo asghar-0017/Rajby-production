@@ -428,11 +428,45 @@ class AutoSchemaSync {
     }
   }
 
+  async ensureInvoiceSourceUniqueConstraint(sequelize, databaseType) {
+    try {
+      // Check if invoices table exists
+      const invoicesTableExists = await this.tableExists(sequelize, 'invoices');
+      if (!invoicesTableExists) {
+        return;
+      }
+
+      // Check if sourceInvoiceNo column exists, if not, add it
+      const columnExists = await this.columnExists(sequelize, 'invoices', 'sourceInvoiceNo');
+      if (!columnExists) {
+        await this.addMissingColumn(sequelize, 'invoices', 'sourceInvoiceNo', 'VARCHAR(100)', true);
+        this.results.columnsAdded++;
+        this.log(`Added column: invoices.sourceInvoiceNo (${databaseType})`);
+      }
+
+      // Check if unique index on sourceInvoiceNo already exists
+      const [existingIndexes] = await sequelize.query(
+        `SHOW INDEX FROM invoices WHERE Column_name = 'sourceInvoiceNo' AND Non_unique = 0`
+      );
+
+      if (existingIndexes.length === 0) {
+        this.log(`Creating strict unique index on invoices.sourceInvoiceNo (${databaseType})`);
+        await sequelize.query(
+          `ALTER TABLE invoices ADD UNIQUE INDEX \`idx_invoices_source_invoice_no_unique\` (\`sourceInvoiceNo\`)`
+        );
+        this.log(`✓ Created unique index on invoices.sourceInvoiceNo (${databaseType})`);
+      }
+    } catch (error) {
+      this.log(`Error ensuring unique constraint on sourceInvoiceNo: ${error.message}`, 'warn');
+    }
+  }
+
   async checkTenantSpecificColumns(sequelize, databaseType) {
     const tenantColumns = [
       // Invoice-specific columns
       { table: 'invoices', column: 'buyerTelephone', type: 'VARCHAR(20)', allowNull: true },
       { table: 'invoices', column: 'internal_invoice_no', type: 'VARCHAR(100)', allowNull: true },
+      { table: 'invoices', column: 'sourceInvoiceNo', type: 'VARCHAR(100)', allowNull: true },
       { table: 'invoices', column: 'created_by_user_id', type: 'INT', allowNull: true },
       { table: 'invoices', column: 'created_by_email', type: 'VARCHAR(255)', allowNull: true },
       { table: 'invoices', column: 'created_by_name', type: 'VARCHAR(255)', allowNull: true },
@@ -465,6 +499,8 @@ class AutoSchemaSync {
       // Buyer-specific columns
       { table: 'buyers', column: 'buyer_id', type: 'VARCHAR(50)', allowNull: true },
       { table: 'buyers', column: 'buyer_main_name', type: 'VARCHAR(255)', allowNull: true },
+      { table: 'buyers', column: 'buyer_city', type: 'VARCHAR(100)', allowNull: true },
+      { table: 'buyers', column: 'buyer_phone_number', type: 'VARCHAR(20)', allowNull: true },
       { table: 'buyers', column: 'created_by_user_id', type: 'INT', allowNull: true },
       { table: 'buyers', column: 'created_by_email', type: 'VARCHAR(255)', allowNull: true },
       { table: 'buyers', column: 'created_by_name', type: 'VARCHAR(255)', allowNull: true },
@@ -529,6 +565,9 @@ class AutoSchemaSync {
           
           // Drop unique constraint on buyerNTNCNIC (allows composite key checking)
           await this.dropUniqueConstraintOnBuyerNTN(tenantSequelize, `tenant: ${tenant.seller_business_name}`);
+          
+          // Ensure unique constraint on sourceInvoiceNo
+          await this.ensureInvoiceSourceUniqueConstraint(tenantSequelize, `tenant: ${tenant.seller_business_name}`);
           
           // Ensure backup tables exist in tenant databases
           await this.ensureBackupTablesExist(tenantSequelize, `tenant: ${tenant.seller_business_name}`);

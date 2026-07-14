@@ -189,6 +189,7 @@ export const createInvoice = async (req, res) => {
       fbr_invoice_number = null,
       fbr_detail_no = null,
       validationResponse = null,
+      idToDelete,
     } = req.body;
 
     // Extract fbr_detail_no from validationResponse.invoiceStatuses[].invoiceNo
@@ -418,6 +419,26 @@ export const createInvoice = async (req, res) => {
     // Create invoice with transaction
 
     const result = await req.tenantDb.transaction(async (t) => {
+      let preservedSourceInvoiceNo = companyInvoiceRefNo;
+
+      if (idToDelete) {
+        console.log(`[createInvoice] Transitioning Saved draft ${idToDelete} to Posted. Hard-deleting draft first...`);
+        const oldDraft = await Invoice.findByPk(idToDelete, { transaction: t });
+        if (oldDraft) {
+          preservedSourceInvoiceNo = oldDraft.sourceInvoiceNo || oldDraft.companyInvoiceRefNo || preservedSourceInvoiceNo;
+          
+          // Delete old draft's items first
+          await InvoiceItem.destroy({
+            where: { invoice_id: idToDelete },
+            transaction: t,
+          });
+
+          // Hard delete the old draft
+          await oldDraft.destroy({ transaction: t });
+          console.log(`[createInvoice] Old draft ${idToDelete} hard-deleted from DB.`);
+        }
+      }
+
       // Generate system invoice ID
 
       const systemInvoiceId = await generateSystemInvoiceId(Invoice);
@@ -461,6 +482,8 @@ export const createInvoice = async (req, res) => {
           invoiceRefNo,
 
           companyInvoiceRefNo,
+
+          sourceInvoiceNo: preservedSourceInvoiceNo,
 
           internal_invoice_no: internalInvoiceNo,
 
@@ -938,6 +961,24 @@ export const createInvoice = async (req, res) => {
   } catch (error) {
     console.error("Error creating invoice:", error);
 
+    if (error.name === 'SequelizeUniqueConstraintError' || 
+        (error.parent && error.parent.code === 'ER_DUP_ENTRY') ||
+        error.message?.includes('Duplicate entry')) {
+      const errorStr = (error.message || '') + ' ' + (error.parent?.sqlMessage || '') + ' ' + JSON.stringify(error.errors || '');
+      const isRefNoDuplicate = errorStr.toLowerCase().includes('sourceinvoiceno') || 
+                               errorStr.toLowerCase().includes('source_invoice_no') || 
+                               errorStr.toLowerCase().includes('companyinvoicerefno') || 
+                               errorStr.toLowerCase().includes('company_invoice_ref_no');
+      
+      if (isRefNoDuplicate) {
+        return res.status(409).json({
+          success: false,
+          message: "Duplicate Reference Number: This Company Invoice Reference Number already exists.",
+          error: error.message
+        });
+      }
+    }
+
     res.status(500).json({
       success: false,
 
@@ -1161,6 +1202,8 @@ export const saveInvoice = async (req, res) => {
 
             companyInvoiceRefNo,
 
+            sourceInvoiceNo: companyInvoiceRefNo,
+
             internal_invoice_no: internalInvoiceNo,
 
             transctypeId,
@@ -1241,6 +1284,8 @@ export const saveInvoice = async (req, res) => {
             invoiceRefNo,
 
             companyInvoiceRefNo,
+
+            sourceInvoiceNo: companyInvoiceRefNo,
 
             internal_invoice_no: internalInvoiceNo,
 
@@ -1597,6 +1642,24 @@ export const saveInvoice = async (req, res) => {
   } catch (error) {
     console.error("Error saving invoice:", error);
 
+    if (error.name === 'SequelizeUniqueConstraintError' || 
+        (error.parent && error.parent.code === 'ER_DUP_ENTRY') ||
+        error.message?.includes('Duplicate entry')) {
+      const errorStr = (error.message || '') + ' ' + (error.parent?.sqlMessage || '') + ' ' + JSON.stringify(error.errors || '');
+      const isRefNoDuplicate = errorStr.toLowerCase().includes('sourceinvoiceno') || 
+                               errorStr.toLowerCase().includes('source_invoice_no') || 
+                               errorStr.toLowerCase().includes('companyinvoicerefno') || 
+                               errorStr.toLowerCase().includes('company_invoice_ref_no');
+      
+      if (isRefNoDuplicate) {
+        return res.status(409).json({
+          success: false,
+          message: "Duplicate Reference Number: This Company Invoice Reference Number already exists.",
+          error: error.message
+        });
+      }
+    }
+
     res.status(500).json({
       success: false,
 
@@ -1653,6 +1716,7 @@ export const saveAndValidateInvoice = async (req, res) => {
       transctypeId,
 
       items,
+      sourceInvoiceNo,
     } = req.body;
 
     // Generate appropriate invoice number based on whether it's a new invoice or update
@@ -1743,6 +1807,7 @@ export const saveAndValidateInvoice = async (req, res) => {
           buyerRegistrationType,
           invoiceRefNo,
           companyInvoiceRefNo,
+          sourceInvoiceNo: sourceInvoiceNo || companyInvoiceRefNo,
           internal_invoice_no: internalInvoiceNo,
           transctypeId,
           items: items.map((item) => ({
@@ -1855,6 +1920,8 @@ export const saveAndValidateInvoice = async (req, res) => {
 
             companyInvoiceRefNo,
 
+            sourceInvoiceNo: companyInvoiceRefNo,
+
             internal_invoice_no: internalInvoiceNo,
 
             transctypeId,
@@ -1933,6 +2000,8 @@ export const saveAndValidateInvoice = async (req, res) => {
             invoiceRefNo,
 
             companyInvoiceRefNo,
+
+            sourceInvoiceNo: companyInvoiceRefNo,
 
             internal_invoice_no: internalInvoiceNo,
 
@@ -2256,6 +2325,24 @@ export const saveAndValidateInvoice = async (req, res) => {
     });
   } catch (error) {
     console.error("Error saving and validating invoice:", error);
+
+    if (error.name === 'SequelizeUniqueConstraintError' || 
+        (error.parent && error.parent.code === 'ER_DUP_ENTRY') ||
+        error.message?.includes('Duplicate entry')) {
+      const errorStr = (error.message || '') + ' ' + (error.parent?.sqlMessage || '') + ' ' + JSON.stringify(error.errors || '');
+      const isRefNoDuplicate = errorStr.toLowerCase().includes('sourceinvoiceno') || 
+                               errorStr.toLowerCase().includes('source_invoice_no') || 
+                               errorStr.toLowerCase().includes('companyinvoicerefno') || 
+                               errorStr.toLowerCase().includes('company_invoice_ref_no');
+      
+      if (isRefNoDuplicate) {
+        return res.status(409).json({
+          success: false,
+          message: "Duplicate Reference Number: This Company Invoice Reference Number already exists.",
+          error: error.message
+        });
+      }
+    }
 
     res.status(500).json({
       success: false,
@@ -6585,6 +6672,7 @@ export const bulkCreateInvoices = async (req, res) => {
             invoiceData.buyerRegistrationType?.trim() || null,
           invoiceRefNo: invoiceData.invoiceRefNo?.trim() || null,
           companyInvoiceRefNo: invoiceData.companyInvoiceRefNo?.trim() || null,
+          sourceInvoiceNo: invoiceData.companyInvoiceRefNo?.trim() || null,
           internal_invoice_no: invoiceData.internalInvoiceNo?.trim() || null,
           transctypeId: null, // Will be set from items
           status: "draft",
@@ -7178,6 +7266,27 @@ export const bulkCreateInvoices = async (req, res) => {
       error
     );
 
+    if (error.name === 'SequelizeUniqueConstraintError' || 
+        (error.parent && error.parent.code === 'ER_DUP_ENTRY') ||
+        error.message?.includes('Duplicate entry')) {
+      const errorStr = (error.message || '') + ' ' + (error.parent?.sqlMessage || '') + ' ' + JSON.stringify(error.errors || '');
+      const isRefNoDuplicate = errorStr.toLowerCase().includes('sourceinvoiceno') || 
+                               errorStr.toLowerCase().includes('source_invoice_no') || 
+                               errorStr.toLowerCase().includes('companyinvoicerefno') || 
+                               errorStr.toLowerCase().includes('company_invoice_ref_no');
+      
+      if (isRefNoDuplicate) {
+        return res.status(409).json({
+          success: false,
+          message: "Duplicate Reference Number: This Company Invoice Reference Number already exists.",
+          error: error.message,
+          performance: {
+            timeToFailure: totalTime.toFixed(2),
+          }
+        });
+      }
+    }
+
     res.status(500).json({
       success: false,
       message: `Bulk upload failed after ${totalTime.toFixed(2)}ms`,
@@ -7404,7 +7513,12 @@ export const getDashboardSummary = async (req, res) => {
 
       where: whereDateRange,
 
-      group: ["Invoice.id"],
+      group: [
+        "Invoice.id",
+        "Invoice.invoice_number",
+        "Invoice.status",
+        "Invoice.invoiceDate",
+      ],
 
       order: [["invoiceDate", "DESC"]],
 

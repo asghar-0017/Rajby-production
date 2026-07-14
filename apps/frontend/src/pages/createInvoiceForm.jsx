@@ -2858,6 +2858,7 @@ export default function CreateInvoice() {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        sourceInvoiceNo: formData.companyInvoiceRefNo,
         items: backendItems, // Use backend items that include all fields
       };
 
@@ -3065,6 +3066,7 @@ export default function CreateInvoice() {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        sourceInvoiceNo: formData.companyInvoiceRefNo,
         // scenarioId: "SN001",
         items: itemsToSave.map(
           (
@@ -3177,6 +3179,7 @@ export default function CreateInvoice() {
           ...formData,
           invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
           transctypeId: formData.transctypeId,
+          sourceInvoiceNo: formData.companyInvoiceRefNo,
           items: backendItems, // Use backend items that include all fields
         };
 
@@ -3550,6 +3553,7 @@ export default function CreateInvoice() {
         ...formData,
         invoiceDate: dayjs(formData.invoiceDate).format("YYYY-MM-DD"),
         transctypeId: formData.transctypeId,
+        sourceInvoiceNo: formData.companyInvoiceRefNo,
         // scenarioId: "SN001",
         items: cleanedItems,
       };
@@ -3703,6 +3707,7 @@ export default function CreateInvoice() {
         fbr_invoice_number: fbrInvoiceNumber,
         fbr_detail_no: fbrDetailNo,
         status: "posted", // Set status as posted since it's been submitted to FBR
+        idToDelete: editingId || null,
       };
 
       // Call backend API to save invoice

@@ -4,13 +4,13 @@ import {
   getUserProfile,
   changeUserPassword,
 } from "../controller/mysql/userAuthController.js";
-import { authenticateToken } from "../middleWare/authMiddleware.js";
+import { authenticateToken, checkSuspension } from "../middleWare/authMiddleware.js";
 import roleManagementController from "../controller/mysql/roleManagementController.js";
 
 const router = express.Router();
 
 // Public routes
-router.post("/login", userLogin);
+router.post("/login", checkSuspension, userLogin);
 
 // Protected routes
 router.get("/profile", authenticateToken, getUserProfile);

@@ -1052,7 +1052,10 @@ export default function BasicTable() {
             // STEP 2: If validation passes, save the invoice with status 'saved'
             const saveResponse = await api.post(
               `/tenant/${selectedTenant.tenant_id}/invoices/save-validate`,
-              invoiceData
+              {
+                ...invoiceData,
+                sourceInvoiceNo: invoiceData.companyInvoiceRefNo,
+              }
             );
 
             if (saveResponse.status === 201) {
@@ -1366,6 +1369,7 @@ export default function BasicTable() {
               ...invoiceData,
               invoiceDate: dayjs(invoiceData.invoiceDate).format("YYYY-MM-DD"),
               transctypeId: invoiceData.transctypeId,
+              sourceInvoiceNo: invoiceData.companyInvoiceRefNo,
               // scenarioId: "SN001", // Default scenario ID
               items: cleanedItems,
             };
@@ -1547,6 +1551,7 @@ export default function BasicTable() {
               fbr_invoice_number: fbrInvoiceNumber,
               fbr_detail_no: fbrDetailNo,
               status: "posted", // Set status as posted since it's been submitted to FBR
+              idToDelete: invoiceData.id || null,
             };
 
             // Call backend API to save invoice
