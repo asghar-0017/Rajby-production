@@ -958,6 +958,7 @@ export default function BasicTable() {
               ...invoiceData,
               invoiceDate: dayjs(invoiceData.invoiceDate).format("YYYY-MM-DD"),
               transctypeId: invoiceData.transctypeId,
+              sourceInvoiceNo: invoiceData.companyInvoiceRefNo,
               // scenarioId: "SN001", // Default scenario ID
               items: cleanedItems,
             };
