@@ -4325,7 +4325,16 @@ export const printInvoice = async (req, res) => {
 
     await page.setContent(html, { waitUntil: "networkidle0" });
 
-    await page.pdf({ path: pdfPath, format: "A4", printBackground: true });
+    let pdfBuffer;
+    let savedToDisk = false;
+
+    try {
+      pdfBuffer = await page.pdf({ path: pdfPath, format: "A4", printBackground: true });
+      savedToDisk = true;
+    } catch (writeError) {
+      console.warn("Could not write PDF to disk, falling back to in-memory generation:", writeError);
+      pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
+    }
 
     await browser.close();
 
@@ -4335,7 +4344,11 @@ export const printInvoice = async (req, res) => {
 
     res.setHeader("Content-Disposition", `inline; filename=${pdfFileName}`);
 
-    fs.createReadStream(pdfPath).pipe(res);
+    if (savedToDisk) {
+      fs.createReadStream(pdfPath).pipe(res);
+    } else {
+      res.end(pdfBuffer);
+    }
   } catch (error) {
     console.error("PDF generation failed:", error);
 
@@ -9907,8 +9920,10 @@ export const bulkPrintInvoices = async (req, res) => {
 
     const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
-    await page.pdf({
-      path: pdfPath,
+
+    let pdfBuffer;
+    let savedToDisk = false;
+    const pdfOptions = {
       format: "A4",
       printBackground: true,
       margin: {
@@ -9917,14 +9932,29 @@ export const bulkPrintInvoices = async (req, res) => {
         bottom: "20px",
         left: "20px",
       },
-    });
+    };
+
+    try {
+      pdfBuffer = await page.pdf({
+        path: pdfPath,
+        ...pdfOptions
+      });
+      savedToDisk = true;
+    } catch (writeError) {
+      console.warn("Could not write bulk PDF to disk, falling back to in-memory generation:", writeError);
+      pdfBuffer = await page.pdf(pdfOptions);
+    }
 
     await browser.close();
 
     // Stream PDF to browser
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename=${pdfFileName}`);
-    fs.createReadStream(pdfPath).pipe(res);
+    if (savedToDisk) {
+      fs.createReadStream(pdfPath).pipe(res);
+    } else {
+      res.end(pdfBuffer);
+    }
   } catch (error) {
     console.error("Bulk PDF generation failed:", error);
     res.status(500).json({
