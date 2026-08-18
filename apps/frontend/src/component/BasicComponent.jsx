@@ -17,6 +17,7 @@ import {
   InputAdornment,
   Checkbox,
   CircularProgress,
+  Chip,
 } from "@mui/material";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
@@ -26,12 +27,22 @@ import PrintIcon from "@mui/icons-material/Print";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import SyncIcon from "@mui/icons-material/Sync";
+import ReplayIcon from "@mui/icons-material/Replay";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import ErrorIcon from "@mui/icons-material/Error";
+import HourglassEmptyIcon from "@mui/icons-material/HourglassEmpty";
 
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import PermissionGate from "./PermissionGate";
 
-import { api, API_CONFIG, deleteRajbyInvoice } from "../API/Api";
+import {
+  api,
+  API_CONFIG,
+  deleteRajbyInvoice,
+  retryRajbyInvoiceSync,
+  bulkRetryRajbyInvoiceSync,
+} from "../API/Api";
 import { postData } from "../API/GetApi";
 import { checkRegistrationStatusWithDate } from "../API/FBRService";
 import SearchIcon from "@mui/icons-material/Search";
@@ -65,6 +76,8 @@ export default function BasicTable() {
   const [atlSyncLoading, setAtlSyncLoading] = useState({});
   const [atlSyncStatus, setAtlSyncStatus] = useState({});
   const [bulkAtlSyncLoading, setBulkAtlSyncLoading] = useState(false);
+  const [retrySyncLoading, setRetrySyncLoading] = useState({});
+  const [bulkRetryLoading, setBulkRetryLoading] = useState(false);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -837,6 +850,191 @@ export default function BasicTable() {
           );
         }
       }
+    }
+  };
+
+  // Single Retry Function for Rajby synchronization
+  const handleSingleRajbyRetry = async (invoice) => {
+    const invoiceId = invoice._id || invoice.id;
+    if (!selectedTenant || !invoiceId) return;
+
+    setRetrySyncLoading((prev) => ({ ...prev, [invoiceId]: true }));
+
+    try {
+      const response = await retryRajbyInvoiceSync(selectedTenant.tenant_id, invoiceId);
+
+      if (response.data && response.data.success) {
+        toast.success(
+          `Invoice ${invoice.invoiceNumber || invoice.companyInvoiceRefNo} synced successfully with Rajby Portal!`,
+          { autoClose: 4000 }
+        );
+        getMyInvoices();
+      } else {
+        const errorMsg =
+          response.data?.message ||
+          response.data?.error ||
+          "Synchronization failed";
+        showRajbyErrorModal(invoice, errorMsg);
+      }
+    } catch (error) {
+      console.error("Rajby retry error:", error);
+      const errorMsg =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        "Failed to sync invoice with Rajby Portal";
+      showRajbyErrorModal(invoice, errorMsg);
+    } finally {
+      setRetrySyncLoading((prev) => ({ ...prev, [invoiceId]: false }));
+    }
+  };
+
+  // Show Error Popup Modal with "Retry Again" option
+  const showRajbyErrorModal = (invoice, errorMsg) => {
+    Swal.fire({
+      icon: "error",
+      title: "Rajby Synchronization Failed",
+      html: `
+        <div style="text-align: left; font-size: 14px; color: #333;">
+          <p><b>Invoice #:</b> ${invoice.invoiceNumber || invoice.companyInvoiceRefNo || 'N/A'}</p>
+          <p><b>Company Ref #:</b> ${invoice.companyInvoiceRefNo || 'N/A'}</p>
+          <p style="margin-top: 10px; margin-bottom: 5px;"><b>Failure Reason:</b></p>
+          <div style="background: #fff5f5; border: 1px solid #feb2b2; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 12px; color: #c53030; word-break: break-word; max-height: 160px; overflow-y: auto;">
+            ${errorMsg}
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: "Retry Again",
+      cancelButtonText: "Close",
+      confirmButtonColor: "#ed6c02",
+      cancelButtonColor: "#757575",
+      reverseButtons: true,
+    }).then((result) => {
+      if (result.isConfirmed) {
+        handleSingleRajbyRetry(invoice);
+      }
+    });
+  };
+
+  // Bulk Retry Function for Rajby synchronization
+  const handleBulkRajbyRetry = async () => {
+    if (!selectedTenant) {
+      toast.error("No company selected");
+      return;
+    }
+
+    if (selectedInvoices.size === 0) {
+      toast.error("Please select at least one invoice to retry.");
+      return;
+    }
+
+    // Filter selected invoices that are posted and unsynced
+    const eligibleInvoices = invoices.filter((inv) => {
+      const id = inv._id || inv.id;
+      return (
+        selectedInvoices.has(id) &&
+        inv.status === "posted" &&
+        inv.rajby_sync_status !== "synced"
+      );
+    });
+
+    if (eligibleInvoices.length === 0) {
+      Swal.fire({
+        icon: "info",
+        title: "No Eligible Invoices Selected",
+        text: "Only posted invoices that are not yet synced with Rajby Portal can be retried.",
+        confirmButtonColor: "#1976d2",
+      });
+      return;
+    }
+
+    const eligibleIds = eligibleInvoices.map((inv) => inv._id || inv.id);
+
+    setBulkRetryLoading(true);
+    Swal.fire({
+      title: "Retrying Rajby Synchronization...",
+      text: `Processing synchronization for ${eligibleIds.length} selected invoice(s). Please wait...`,
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+    });
+
+    try {
+      const response = await bulkRetryRajbyInvoiceSync(
+        selectedTenant.tenant_id,
+        eligibleIds
+      );
+
+      if (response.data && response.data.success) {
+        const { summary, results = [] } = response.data;
+        const synced = summary?.synced || 0;
+        const failed = summary?.failed || 0;
+
+        getMyInvoices();
+
+        const failedItems = results.filter((res) => !res.success);
+        let errorDetailsHtml = "";
+        if (failedItems.length > 0) {
+          errorDetailsHtml = `
+            <div style="margin-top: 14px; text-align: left;">
+              <p style="font-weight: bold; color: #d32f2f; margin-bottom: 6px; font-size: 13px;">Error Logs / Details (${failedItems.length}):</p>
+              <div style="background: #fff5f5; border: 1px solid #feb2b2; border-radius: 6px; padding: 10px; max-height: 180px; overflow-y: auto;">
+                ${failedItems
+                  .map(
+                    (item) => `
+                  <div style="margin-bottom: 8px; border-bottom: 1px dashed #fed7d7; padding-bottom: 6px;">
+                    <div style="font-weight: 600; font-size: 12px; color: #2d3748;">
+                      Invoice #${item.invoiceNumber || item.companyInvoiceRefNo || item.id}
+                    </div>
+                    <div style="font-family: monospace; font-size: 11px; color: #c53030; word-break: break-word; margin-top: 2px;">
+                      ${item.message || "Sync failed"}
+                    </div>
+                  </div>
+                `
+                  )
+                  .join("")}
+              </div>
+            </div>
+          `;
+        }
+
+        Swal.fire({
+          icon:
+            synced > 0 && failed === 0
+              ? "success"
+              : synced > 0
+                ? "warning"
+                : "error",
+          title: "Bulk Rajby Retry Complete",
+          html: `
+            <div style="text-align: left; font-size: 14px;">
+              <p style="margin-bottom: 4px;"><b>Total Selected:</b> ${summary?.total || eligibleIds.length}</p>
+              <p style="margin-bottom: 4px; color: #2e7d32;"><b>Successfully Synced:</b> ${synced}</p>
+              <p style="margin-bottom: 4px; color: #d32f2f;"><b>Failed:</b> ${failed}</p>
+              ${errorDetailsHtml}
+            </div>
+          `,
+          confirmButtonColor: "#1976d2",
+          width: "520px",
+        });
+      } else {
+        throw new Error(response.data?.message || "Bulk retry failed");
+      }
+    } catch (error) {
+      console.error("Bulk Rajby retry error:", error);
+      Swal.fire({
+        icon: "error",
+        title: "Bulk Retry Failed",
+        text:
+          error.response?.data?.message ||
+          error.message ||
+          "Failed to process bulk retry",
+        confirmButtonColor: "#d33",
+      });
+    } finally {
+      setBulkRetryLoading(false);
     }
   };
 
@@ -2290,6 +2488,54 @@ export default function BasicTable() {
                         </>
                       );
                     })()}
+                    {(() => {
+                      const hasUnsyncedPosted = invoices.some(
+                        (inv) =>
+                          selectedInvoices.has(inv._id || inv.id) &&
+                          inv.status === "posted" &&
+                          inv.rajby_sync_status !== "synced"
+                      );
+
+                      if (hasUnsyncedPosted) {
+                        return (
+                          <PermissionGate permission="invoice.view">
+                            <Tooltip title="Retry Rajby synchronization for all selected unsynced invoices">
+                              <Button
+                                onClick={handleBulkRajbyRetry}
+                                variant="outlined"
+                                color="warning"
+                                size="small"
+                                startIcon={<ReplayIcon />}
+                                disabled={bulkRetryLoading}
+                                sx={{
+                                  borderRadius: 1.5,
+                                  fontWeight: 600,
+                                  px: 1.5,
+                                  py: 0.3,
+                                  fontSize: 11,
+                                  letterSpacing: 0.3,
+                                  boxShadow: 1,
+                                  bgcolor: "white",
+                                  color: "#ed6c02",
+                                  borderColor: "#ed6c02",
+                                  "&:hover": {
+                                    background: "#ed6c02",
+                                    color: "white",
+                                  },
+                                }}
+                              >
+                                {bulkRetryLoading ? (
+                                  <CircularProgress size={16} color="inherit" />
+                                ) : (
+                                  "Bulk Retry Rajby"
+                                )}
+                              </Button>
+                            </Tooltip>
+                          </PermissionGate>
+                        );
+                      }
+                      return null;
+                    })()}
                   </Box>
                 )}
               </Box>
@@ -2524,6 +2770,7 @@ export default function BasicTable() {
                         "Buyer",
                         "Buyer NTN",
                         "Product Description",
+                        "Rajby Sync",
                         ...(isAdmin ? ["Created By"] : []),
                         "Actions",
                       ].map((heading) => (
@@ -2735,6 +2982,49 @@ export default function BasicTable() {
                                 .join(", ")
                               : "N/A"}
                           </TableCell>
+                          <TableCell align="center">
+                            {row.status === "posted" ? (
+                              row.rajby_sync_status === "synced" ? (
+                                <Tooltip title="Successfully posted & synced to Rajby Portal">
+                                  <Chip
+                                    icon={<CheckCircleIcon style={{ fontSize: 14 }} />}
+                                    label="Synced"
+                                    size="small"
+                                    color="success"
+                                    variant="outlined"
+                                    sx={{ height: 24, fontSize: 11, fontWeight: 600 }}
+                                  />
+                                </Tooltip>
+                              ) : row.rajby_sync_status === "failed" ? (
+                                <Tooltip title={`Rajby Sync Failed: ${row.rajby_sync_error || "Click to see error details"}`}>
+                                  <Chip
+                                    icon={<ErrorIcon style={{ fontSize: 14 }} />}
+                                    label="Failed"
+                                    size="small"
+                                    color="error"
+                                    variant="outlined"
+                                    sx={{ height: 24, fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                                    onClick={() => showRajbyErrorModal(row, row.rajby_sync_error || "Synchronization failed")}
+                                  />
+                                </Tooltip>
+                              ) : (
+                                <Tooltip title="Pending Rajby synchronization">
+                                  <Chip
+                                    icon={<HourglassEmptyIcon style={{ fontSize: 14 }} />}
+                                    label="Pending"
+                                    size="small"
+                                    color="warning"
+                                    variant="outlined"
+                                    sx={{ height: 24, fontSize: 11, fontWeight: 600 }}
+                                  />
+                                </Tooltip>
+                              )
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">
+                                -
+                              </Typography>
+                            )}
+                          </TableCell>
                           {isAdmin && (
                             <TableCell align="center" sx={{ fontWeight: 500 }}>
                               {row.created_by_name
@@ -2806,6 +3096,37 @@ export default function BasicTable() {
                                   <VisibilityIcon fontSize="small" />
                                 </Button>
                               </Tooltip>
+                              {row.status === "posted" && row.rajby_sync_status !== "synced" && (
+                                <PermissionGate permission="invoice.view">
+                                  <Tooltip title="Retry Rajby Portal Synchronization">
+                                    <Button
+                                      variant="outlined"
+                                      color="warning"
+                                      size="small"
+                                      onClick={() => handleSingleRajbyRetry(row)}
+                                      disabled={retrySyncLoading[row._id || row.id]}
+                                      sx={{
+                                        minWidth: "32px",
+                                        width: "32px",
+                                        height: "32px",
+                                        p: 0,
+                                        borderColor: "#ed6c02",
+                                        color: "#ed6c02",
+                                        "&:hover": {
+                                          backgroundColor: "#fff3e0",
+                                          borderColor: "#e65100",
+                                        },
+                                      }}
+                                    >
+                                      {retrySyncLoading[row._id || row.id] ? (
+                                        <CircularProgress size={16} color="inherit" />
+                                      ) : (
+                                        <ReplayIcon fontSize="small" />
+                                      )}
+                                    </Button>
+                                  </Tooltip>
+                                </PermissionGate>
+                              )}
                               {(row.status === "draft" ||
                                 row.status === "saved") && (
                                   <>

@@ -20,7 +20,7 @@ const API_CONFIG = {
     const token = tokenManager.getSandboxToken();
     console.log(
       "API_CONFIG: sandBoxTestToken =",
-      token ? "Available" : "Not available"
+      token ? "Available" : "Not available",
     );
     return token;
   },
@@ -28,7 +28,7 @@ const API_CONFIG = {
     const token = tokenManager.getProductionToken();
     console.log(
       "API_CONFIG: productionToken =",
-      token ? "Available" : "Not available"
+      token ? "Available" : "Not available",
     );
     return token;
   },
@@ -38,7 +38,7 @@ const API_CONFIG = {
       "API_CONFIG: getCurrentToken(",
       environment,
       ") =",
-      token ? `Available (${token.substring(0, 10)}...)` : "Not available"
+      token ? `Available (${token.substring(0, 10)}...)` : "Not available",
     );
     return token;
   },
@@ -98,19 +98,19 @@ api.interceptors.request.use(
           tenantIdToUse = tenant.tenant_id;
           console.log(
             "Using tenant ID from selectedTenant localStorage:",
-            tenantIdToUse
+            tenantIdToUse,
           );
         } catch (error) {
           console.error(
             "Error parsing selected Company from localStorage:",
-            error
+            error,
           );
         }
       } else if (tenantId) {
         tenantIdToUse = tenantId;
         console.log(
           "Using tenant ID from tenantId localStorage:",
-          tenantIdToUse
+          tenantIdToUse,
         );
       }
 
@@ -121,7 +121,7 @@ api.interceptors.request.use(
           tenantIdToUse = urlMatch[1];
           console.log(
             "Extracted tenant ID from URL as fallback:",
-            tenantIdToUse
+            tenantIdToUse,
           );
         }
       }
@@ -153,7 +153,7 @@ api.interceptors.request.use(
   },
   (error) => {
     return Promise.reject(error);
-  }
+  },
 );
 
 // Utility function to get current token state for debugging
@@ -177,7 +177,7 @@ export const debugTokenManager = () => {
   console.log("API_CONFIG.productionToken:", API_CONFIG.productionToken);
   console.log(
     "API_CONFIG.getCurrentToken('sandbox'):",
-    API_CONFIG.getCurrentToken("sandbox")
+    API_CONFIG.getCurrentToken("sandbox"),
   );
   console.log("=== End Token Manager Debug ===");
 };
@@ -226,7 +226,33 @@ export const deleteRajbyInvoice = async (companyInvoiceRefNo) => {
     `/rajby-invoices/${encodeURIComponent(companyInvoiceRefNo)}`,
     {
       timeout: 60000, // 60 seconds timeout
-    }
+    },
+  );
+  return response;
+};
+
+// Retry synchronization of a single invoice with Rajby API through backend
+export const retryRajbyInvoiceSync = async (tenantId, invoiceId) => {
+  if (!tenantId || !invoiceId) {
+    throw new Error("Tenant ID and Invoice ID are required");
+  }
+  const response = await api.post(
+    `/tenant/${tenantId}/invoices/${invoiceId}/retry-rajby`,
+    {},
+    { timeout: 90000 },
+  );
+  return response;
+};
+
+// Bulk retry synchronization of multiple invoices with Rajby API through backend
+export const bulkRetryRajbyInvoiceSync = async (tenantId, invoiceIds) => {
+  if (!tenantId || !Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+    throw new Error("Tenant ID and an array of invoice IDs are required");
+  }
+  const response = await api.post(
+    `/tenant/${tenantId}/invoices/bulk-retry-rajby`,
+    { invoiceIds },
+    { timeout: 180000 },
   );
   return response;
 };
@@ -237,14 +263,19 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
-    if (error.response && error.response.data && error.response.data.isSuspended) {
+    if (
+      error.response &&
+      error.response.data &&
+      error.response.data.isSuspended
+    ) {
       localStorage.clear();
       window.location.href = "/login";
       return Promise.reject(error);
     }
     if (error.response && error.response.status === 409) {
       const url = error.config.url || "";
-      const isSaveValidateOrSubmit = url.includes("/invoices/save") ||
+      const isSaveValidateOrSubmit =
+        url.includes("/invoices/save") ||
         url.includes("/invoices/save-validate") ||
         url.includes("/validate-invoice") ||
         url.includes("/submit-invoice") ||
@@ -266,7 +297,7 @@ api.interceptors.response.use(
       }
     }
     return Promise.reject(error);
-  }
+  },
 );
 
 export { API_CONFIG, api };

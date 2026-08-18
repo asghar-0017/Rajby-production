@@ -131,7 +131,7 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
 
       if (!tokenValid && retryCount < maxRetries) {
         console.log(
-          `Token validation failed, attempting retry ${retryCount + 1}/${maxRetries}`
+          `Token validation failed, attempting retry ${retryCount + 1}/${maxRetries}`,
         );
         setRetryCount((prev) => prev + 1);
 
@@ -145,7 +145,7 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
 
       if (!tokenValid) {
         throw new Error(
-          "Unable to load tokens after multiple attempts. Please refresh the page and try again."
+          "Unable to load tokens after multiple attempts. Please refresh the page and try again.",
         );
       }
 
@@ -164,7 +164,7 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
         retryCount < maxRetries
       ) {
         console.log(
-          `Token error detected, attempting retry ${retryCount + 1}/${maxRetries}`
+          `Token error detected, attempting retry ${retryCount + 1}/${maxRetries}`,
         );
         setRetryCount((prev) => prev + 1);
 
@@ -183,11 +183,11 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
           const parsedProvinces = JSON.parse(cachedProvinces);
           console.log(
             "Using cached provinces from localStorage:",
-            parsedProvinces
+            parsedProvinces,
           );
           setProvinces(parsedProvinces);
           setErrorMessage(
-            "Using cached province data. Some provinces may be outdated."
+            "Using cached province data. Some provinces may be outdated.",
           );
           setShowError(true);
           return;
@@ -197,7 +197,7 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
       }
 
       setErrorMessage(
-        error.message || "Failed to fetch provinces. Please try again."
+        error.message || "Failed to fetch provinces. Please try again.",
       );
       setShowError(true);
       setProvinces([]);
@@ -243,14 +243,14 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
           const parsedProvinces = JSON.parse(cachedProvinces);
           console.log(
             "Loading cached provinces on modal open:",
-            parsedProvinces
+            parsedProvinces,
           );
           setProvinces(parsedProvinces);
         }
       } catch (cacheError) {
         console.error(
           "Error loading cached provinces on modal open:",
-          cacheError
+          cacheError,
         );
       }
     }
@@ -341,22 +341,19 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
       setCheckingBuyerRegistration(true);
       setBuyerRegistrationHint("");
 
-      const response = await fetch(
-        "http://143.198.95.2:5155/api/buyer-check",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ registrationNo }),
-        }
-      );
+      const response = await fetch("http://143.198.95.2:5155/api/buyer-check", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ registrationNo }),
+      });
 
       console.log(
         "FBR buyer check response status:",
         response.status,
         "ok:",
-        response.ok
+        response.ok,
       );
 
       const data = await response.json().catch(() => ({}));
@@ -393,13 +390,13 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
       setBuyerRegistrationHint(
         derivedRegistrationType === "Registered"
           ? "Auto-filled as Registered from FBR"
-          : "Auto-filled as Unregistered from FBR"
+          : "Auto-filled as Unregistered from FBR",
       );
       setRegistrationTypeLocked(true);
     } catch (err) {
       console.error("Buyer registration check failed:", err);
       setBuyerRegistrationHint(
-        "Could not verify from FBR. You can choose manually."
+        "Could not verify from FBR. You can choose manually.",
       );
       setRegistrationTypeLocked(false);
     } finally {
@@ -725,7 +722,7 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
                   checkingBuyerRegistration
                     ? "Checking registration from FBR..."
                     : buyerRegistrationHint ||
-                    `${formData.documentType === "NTN" ? "NTN: Max 7 alphanumeric characters" : "CNIC: Exactly 13 numbers only"} (${formData.buyerNTNCNIC.length}/${formData.documentType === "NTN" ? "7" : "13"})`
+                      `${formData.documentType === "NTN" ? "NTN: Max 7 alphanumeric characters" : "CNIC: Exactly 13 numbers only"} (${formData.buyerNTNCNIC.length}/${formData.documentType === "NTN" ? "7" : "13"})`
                 }
               />
 
@@ -854,18 +851,18 @@ const BuyerModal = ({ isOpen, onClose, onSave, buyer }) => {
                     {/* Debug info */}
                     {console.log(
                       "Province dropdown - formData.buyerProvince:",
-                      formData.buyerProvince
+                      formData.buyerProvince,
                     )}
                     {console.log("Province dropdown - provinces:", provinces)}
                     {console.log(
                       "Province dropdown - provinces length:",
-                      provinces.length
+                      provinces.length,
                     )}
 
                     {/* Show current province value if it exists and is not in the FBR list */}
                     {formData.buyerProvince &&
                       !provinces.some(
-                        (p) => p.stateProvinceDesc === formData.buyerProvince
+                        (p) => p.stateProvinceDesc === formData.buyerProvince,
                       ) && (
                         <MenuItem
                           value={formData.buyerProvince}

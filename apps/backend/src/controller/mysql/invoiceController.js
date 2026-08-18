@@ -880,18 +880,32 @@ export const createInvoice = async (req, res) => {
           });
 
           console.log("✅ Rajby FBR Reference API called successfully:", rajbyReferenceResult);
+
+          await result.update({
+            rajby_sync_status: "synced",
+            rajby_sync_error: null,
+            rajby_synced_at: new Date(),
+          });
         }
       } catch (rajbyError) {
-        // Log error but don't fail the invoice creation
+        // Log error and update sync status on invoice
         console.error("❌ Error calling Rajby FBR Reference API:", rajbyError.message);
         console.error("❌ Full error:", rajbyError);
-        // Continue with the rest of the flow even if Rajby API call fails
+        
+        await result.update({
+          rajby_sync_status: "failed",
+          rajby_sync_error: rajbyError.message || "Failed to post reference to Rajby Portal",
+        });
       }
     } else {
       console.warn("⚠️ Rajby FBR Reference API not called - missing required fields:", {
         hasCompanyInvoiceRefNo: !!result.companyInvoiceRefNo,
         hasFbrInvoiceNumber: !!fbr_invoice_number,
         hasFbrDetailNo: !!fbr_detail_no
+      });
+      await result.update({
+        rajby_sync_status: "pending",
+        rajby_sync_error: "Missing required reference fields (companyInvoiceRefNo, fbr_invoice_number, or fbr_detail_no)",
       });
     }
 
@@ -3225,6 +3239,12 @@ export const getAllInvoices = async (req, res) => {
         companyInvoiceRefNo: plainInvoice.companyInvoiceRefNo,
 
         fbr_invoice_number: plainInvoice.fbr_invoice_number,
+
+        rajby_sync_status: plainInvoice.rajby_sync_status || "pending",
+
+        rajby_sync_error: plainInvoice.rajby_sync_error || null,
+
+        rajby_synced_at: plainInvoice.rajby_synced_at || null,
 
         items: (plainInvoice.InvoiceItems || []).map((item) => ({
           ...item,
@@ -9964,3 +9984,341 @@ export const bulkPrintInvoices = async (req, res) => {
     });
   }
 };
+
+/**
+ * Retry synchronization of a specific invoice with the Rajby Portal
+ */
+export const retryRajbySync = async (req, res) => {
+  try {
+    const { Invoice, InvoiceItem } = req.tenantModels || {};
+    const { id } = req.params;
+
+    console.log(`🔍 [retryRajbySync] Received request for identifier: "${id}"`);
+
+    if (!Invoice) {
+      console.error(`❌ [retryRajbySync] Tenant models not initialized on request.`);
+      return res.status(500).json({
+        success: false,
+        message: "Tenant database connection not initialized.",
+      });
+    }
+
+    // Support finding by PK, companyInvoiceRefNo, fbr_invoice_number, invoice_number, or system_invoice_id
+    let invoice;
+    if (!isNaN(id) && Number.isInteger(Number(id))) {
+      invoice = await Invoice.findByPk(id, {
+        include: [{ model: InvoiceItem, as: "InvoiceItems" }],
+      });
+    }
+
+    if (!invoice) {
+      invoice = await Invoice.findOne({
+        where: {
+          [Op.or]: [
+            { id: id },
+            { companyInvoiceRefNo: id },
+            { fbr_invoice_number: id },
+            { invoice_number: id },
+            { system_invoice_id: id },
+          ],
+        },
+        include: [{ model: InvoiceItem, as: "InvoiceItems" }],
+      });
+    }
+
+    if (!invoice) {
+      console.log(`❌ [retryRajbySync] Invoice NOT FOUND matching identifier "${id}"`);
+      return res.status(404).json({
+        success: false,
+        message: `Invoice not found matching identifier: ${id}`,
+      });
+    }
+
+    console.log(`✅ [retryRajbySync] Found Invoice ID ${invoice.id} (${invoice.companyInvoiceRefNo})`);
+
+    const fbrInvoiceNumber = invoice.fbr_invoice_number;
+    const companyInvoiceRefNo = invoice.companyInvoiceRefNo;
+
+    if (!fbrInvoiceNumber || !companyInvoiceRefNo) {
+      await invoice.update({
+        rajby_sync_status: "failed",
+        rajby_sync_error: "Invoice is missing FBR Invoice Number or Company Invoice Reference Number.",
+      });
+      return res.status(400).json({
+        success: false,
+        message: "Invoice is missing FBR Invoice Number or Company Invoice Reference Number required for Rajby sync.",
+        invoice,
+      });
+    }
+
+    // Prepare invoice details dynamically from invoice items
+    const items = invoice.InvoiceItems || [];
+    const invoiceDetails = [];
+
+    items.forEach((item, index) => {
+      const detInvNo = item.InvoiceDetId;
+      const fbrNo = item.InvoiceItemId || `${fbrInvoiceNumber}-${index + 1}`;
+
+      if (detInvNo && fbrNo) {
+        invoiceDetails.push({
+          detInvNo: detInvNo,
+          fbrNo: fbrNo,
+        });
+      }
+    });
+
+    const invoiceDateFormatted = invoice.invoiceDate
+      ? (invoice.invoiceDate instanceof Date
+        ? invoice.invoiceDate.toISOString().split('T')[0]
+        : new Date(invoice.invoiceDate).toISOString().split('T')[0])
+      : null;
+
+    if (!invoiceDateFormatted || invoiceDetails.length === 0) {
+      await invoice.update({
+        rajby_sync_status: "failed",
+        rajby_sync_error: "Missing formatted invoice date or item details for Rajby sync.",
+      });
+      return res.status(400).json({
+        success: false,
+        message: "Missing formatted invoice date or item details required for Rajby sync.",
+        invoice,
+      });
+    }
+
+    console.log(`🚀 Retrying Rajby FBR Reference API for invoice #${invoice.invoice_number}...`, {
+      fbrInvoiceNumber,
+      companyInvoiceRefNo,
+      invoiceDate: invoiceDateFormatted,
+      invoiceDetailsCount: invoiceDetails.length,
+    });
+
+    const { submitFBRReference } = await import("../../service/RajbyService.js");
+    const rajbyResult = await submitFBRReference({
+      fbrInvoiceNumber,
+      companyInvoiceRefNo,
+      invoiceDate: invoiceDateFormatted,
+      invoiceDetails,
+    });
+
+    console.log("✅ Rajby Retry Success:", rajbyResult);
+
+    await invoice.update({
+      rajby_sync_status: "synced",
+      rajby_sync_error: null,
+      rajby_synced_at: new Date(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: rajbyResult.message || "Invoice successfully synced with Rajby Portal.",
+      data: rajbyResult,
+      invoice: {
+        id: invoice.id,
+        invoice_number: invoice.invoice_number,
+        companyInvoiceRefNo: invoice.companyInvoiceRefNo,
+        fbr_invoice_number: invoice.fbr_invoice_number,
+        rajby_sync_status: "synced",
+        rajby_synced_at: new Date(),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Rajby Retry Failed:", error.message);
+
+    if (req.params.id) {
+      try {
+        const { Invoice } = req.tenantModels;
+        const inv = await Invoice.findByPk(req.params.id);
+        if (inv) {
+          await inv.update({
+            rajby_sync_status: "failed",
+            rajby_sync_error: error.message || "Rajby synchronization failed.",
+          });
+        }
+      } catch (dbErr) {
+        console.error("Failed to save error status on invoice:", dbErr.message);
+      }
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to synchronize invoice with Rajby Portal.",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Bulk retry synchronization of multiple invoices with Rajby Portal
+ */
+export const bulkRetryRajbySync = async (req, res) => {
+  try {
+    const { Invoice, InvoiceItem } = req.tenantModels;
+    const { invoiceIds } = req.body;
+
+    if (!Array.isArray(invoiceIds) || invoiceIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No invoice IDs provided for bulk retry.",
+      });
+    }
+
+    console.log(`🚀 Starting Bulk Rajby Retry for ${invoiceIds.length} invoices...`);
+
+    const { submitFBRReference } = await import("../../service/RajbyService.js");
+
+    const results = [];
+    let syncedCount = 0;
+    let failedCount = 0;
+
+    // Process each invoice independently so failures don't stop the rest
+    for (const id of invoiceIds) {
+      let invoice = null;
+      try {
+        if (!isNaN(id) && Number.isInteger(Number(id))) {
+          invoice = await Invoice.findByPk(id, {
+            include: [{ model: InvoiceItem, as: "InvoiceItems" }],
+          });
+        }
+
+        if (!invoice) {
+          invoice = await Invoice.findOne({
+            where: {
+              [Op.or]: [
+                { companyInvoiceRefNo: id },
+                { fbr_invoice_number: id },
+                { invoice_number: id },
+                { system_invoice_id: id },
+              ],
+            },
+            include: [{ model: InvoiceItem, as: "InvoiceItems" }],
+          });
+        }
+
+        if (!invoice) {
+          results.push({
+            id,
+            success: false,
+            message: `Invoice not found matching identifier: ${id}`,
+          });
+          failedCount++;
+          continue;
+        }
+
+        const fbrInvoiceNumber = invoice.fbr_invoice_number;
+        const companyInvoiceRefNo = invoice.companyInvoiceRefNo;
+
+        if (!fbrInvoiceNumber || !companyInvoiceRefNo) {
+          await invoice.update({
+            rajby_sync_status: "failed",
+            rajby_sync_error: "Missing FBR Invoice Number or Company Invoice Reference Number.",
+          });
+          results.push({
+            id: invoice.id,
+            invoiceNumber: invoice.invoice_number,
+            success: false,
+            message: "Missing FBR Invoice Number or Company Invoice Reference Number",
+          });
+          failedCount++;
+          continue;
+        }
+
+        const items = invoice.InvoiceItems || [];
+        const invoiceDetails = [];
+
+        items.forEach((item, index) => {
+          const detInvNo = item.InvoiceDetId;
+          const fbrNo = item.InvoiceItemId || `${fbrInvoiceNumber}-${index + 1}`;
+
+          if (detInvNo && fbrNo) {
+            invoiceDetails.push({
+              detInvNo: detInvNo,
+              fbrNo: fbrNo,
+            });
+          }
+        });
+
+        const invoiceDateFormatted = invoice.invoiceDate
+          ? (invoice.invoiceDate instanceof Date
+            ? invoice.invoiceDate.toISOString().split('T')[0]
+            : new Date(invoice.invoiceDate).toISOString().split('T')[0])
+          : null;
+
+        if (!invoiceDateFormatted || invoiceDetails.length === 0) {
+          await invoice.update({
+            rajby_sync_status: "failed",
+            rajby_sync_error: "Missing invoice date or item details.",
+          });
+          results.push({
+            id: invoice.id,
+            invoiceNumber: invoice.invoice_number,
+            success: false,
+            message: "Missing invoice date or item details",
+          });
+          failedCount++;
+          continue;
+        }
+
+        const rajbyResult = await submitFBRReference({
+          fbrInvoiceNumber,
+          companyInvoiceRefNo,
+          invoiceDate: invoiceDateFormatted,
+          invoiceDetails,
+        });
+
+        await invoice.update({
+          rajby_sync_status: "synced",
+          rajby_sync_error: null,
+          rajby_synced_at: new Date(),
+        });
+
+        syncedCount++;
+        results.push({
+          id: invoice.id,
+          invoiceNumber: invoice.invoice_number,
+          success: true,
+          message: rajbyResult.message || "Synced successfully",
+        });
+      } catch (invError) {
+        failedCount++;
+        console.error(`❌ Bulk Rajby Retry Error for Invoice ${id}:`, invError.message);
+
+        try {
+          const failedInv = await Invoice.findByPk(id);
+          if (failedInv) {
+            await failedInv.update({
+              rajby_sync_status: "failed",
+              rajby_sync_error: invError.message || "Rajby synchronization failed.",
+            });
+          }
+        } catch (dbErr) {
+          console.error("Failed to update status for failed invoice:", dbErr.message);
+        }
+
+        results.push({
+          id: invoice?.id || id,
+          invoiceNumber: invoice?.invoice_number || invoice?.companyInvoiceRefNo || id,
+          companyInvoiceRefNo: invoice?.companyInvoiceRefNo || null,
+          success: false,
+          message: invError.message || "Rajby synchronization failed",
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      summary: {
+        total: invoiceIds.length,
+        synced: syncedCount,
+        failed: failedCount,
+      },
+      results,
+    });
+  } catch (error) {
+    console.error("❌ Bulk Rajby Retry Controller Error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Bulk retry failed",
+    });
+  }
+};
+

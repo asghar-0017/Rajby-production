@@ -129,6 +129,19 @@ export const createInvoiceModel = (sequelize) => {
         allowNull: false,
         defaultValue: false,
       },
+      rajby_sync_status: {
+        type: DataTypes.ENUM("synced", "pending", "failed"),
+        allowNull: false,
+        defaultValue: "pending",
+      },
+      rajby_sync_error: {
+        type: DataTypes.TEXT,
+        allowNull: true,
+      },
+      rajby_synced_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       tableName: "invoices",

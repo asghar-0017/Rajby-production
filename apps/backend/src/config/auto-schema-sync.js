@@ -282,7 +282,10 @@ class AutoSchemaSync {
       { table: 'products', column: 'created_by_name', type: 'VARCHAR(255)', allowNull: true },
       { table: 'invoices', column: 'created_by_user_id', type: 'INT', allowNull: true },
       { table: 'invoices', column: 'created_by_email', type: 'VARCHAR(255)', allowNull: true },
-      { table: 'invoices', column: 'created_by_name', type: 'VARCHAR(255)', allowNull: true }
+      { table: 'invoices', column: 'created_by_name', type: 'VARCHAR(255)', allowNull: true },
+      { table: 'invoices', column: 'rajby_sync_status', type: 'VARCHAR(50)', allowNull: true, defaultValue: 'pending' },
+      { table: 'invoices', column: 'rajby_sync_error', type: 'TEXT', allowNull: true },
+      { table: 'invoices', column: 'rajby_synced_at', type: 'DATETIME', allowNull: true }
     ];
 
     for (const { table, column, type, allowNull } of commonColumns) {

@@ -27,7 +27,10 @@ import invoiceBackupRoutes from "./routes/invoiceBackupRoutes.js";
 import hsCodeRoutes from "./routes/hsCodeRoutes.js";
 import performanceRoutes from "./routes/performanceRoutes.js";
 import rajbyRoutes from "./routes/rajbyRoutes.js";
-import { initSubscriptionCron, subscriptionState } from "./utils/subscriptionCron.js";
+import {
+  initSubscriptionCron,
+  subscriptionState,
+} from "./utils/subscriptionCron.js";
 
 dotenv.config();
 
@@ -71,7 +74,7 @@ app.use(
     //   },
     // },
     contentSecurityPolicy: false,
-  })
+  }),
 );
 app.use(
   cors({
@@ -89,13 +92,13 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization", "X-Tenant-ID"],
     credentials: true,
     maxAge: 86400, // 24 hours
-  })
-)
+  }),
+);
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(
   "/invoices",
-  express.static(path.join(process.cwd(), "public/invoices"))
+  express.static(path.join(process.cwd(), "public/invoices")),
 );
 // Subscription status route
 app.get("/api/system/status", (req, res) => {
@@ -145,7 +148,7 @@ app.post("/api/buyer-check", async (req, res) => {
       {
         headers: { "Content-Type": "application/json" },
         timeout: 10000,
-      }
+      },
     );
 
     return res.status(200).json(upstream.data);
@@ -172,7 +175,7 @@ app.use(
         res.setHeader("Content-Type", "text/html");
       }
     },
-  })
+  }),
 );
 
 // Catch-all route for SPA - must be last (exclude API routes and static assets)

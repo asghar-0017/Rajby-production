@@ -56,6 +56,9 @@ router.get("/invoices/:id", requirePermission("invoice.view"), invoiceController
 router.put("/invoices/:id", requirePermission("invoice.edit"), invoiceController.updateInvoice);
 router.delete("/invoices/:id", requirePermission("invoice.delete"), invoiceController.deleteInvoice);
 router.delete("/invoices/:id/internal", requirePermission("invoice.delete"), invoiceController.deleteInternalInvoice);
+// Rajby sync retry routes
+router.post("/invoices/bulk-retry-rajby", requirePermission("invoice.view"), invoiceController.bulkRetryRajbySync);
+router.post("/invoices/:id/retry-rajby", requirePermission("invoice.view"), invoiceController.retryRajbySync);
 // router.post("/invoices/:id/submit", requirePermission("invoice.submit"), invoiceController.submitSavedInvoice);
 
 // Get document types from FBR

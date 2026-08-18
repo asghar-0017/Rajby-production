@@ -1,19 +1,23 @@
 # Draft Invoice API - CURL Examples
 
 ## Endpoint
+
 ```
 POST /api/tenant/:tenantId/invoices/save
 ```
 
 ## Description
+
 This API saves an invoice as a draft. When a `buyerNTNCNIC` is provided, it automatically calls the FBR buyer registration type API to fetch and set the buyer's registration type (`Registered` or `Unregistered`).
 
 ## Base URL
+
 ```
 http://143.198.95.2:5155
 ```
 
 ## Authentication
+
 Requires Bearer token in Authorization header.
 
 ## CURL Examples
@@ -71,6 +75,7 @@ curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" 
 ```
 
 **Note:** When `buyerNTNCNIC` is provided, the API will automatically:
+
 1. Call the FBR buyer registration check API
 2. Fetch the registration type (`Registered` or `Unregistered`)
 3. Set `buyerRegistrationType` in the draft invoice
@@ -159,6 +164,7 @@ curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" 
 ## Response Format
 
 ### Success Response (201 Created)
+
 ```json
 {
   "success": true,
@@ -177,6 +183,7 @@ curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" 
 ```
 
 ### Error Response (500 Internal Server Error)
+
 ```json
 {
   "success": false,
@@ -187,12 +194,12 @@ curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" 
 
 ## Important Notes
 
-1. **Buyer Registration Type Auto-Fetch**: 
+1. **Buyer Registration Type Auto-Fetch**:
    - When `buyerNTNCNIC` is provided, the API automatically calls the FBR buyer registration check API
    - The registration type (`Registered` or `Unregistered`) is fetched and set automatically
    - If the API call fails, it defaults to `Unregistered` or uses the provided `buyerRegistrationType` if available
 
-2. **Draft Invoice Number**: 
+2. **Draft Invoice Number**:
    - New draft invoices get a number like `DRAFT_000001`
    - Existing draft invoices keep their `DRAFT_` number when updated
 
@@ -211,9 +218,9 @@ curl -X POST "http://143.198.95.2:5155/api/tenant/YOUR_TENANT_ID/invoices/save" 
 ## Buyer Registration Type API Details
 
 The API calls the following endpoint to check buyer registration:
+
 - **URL**: `https://buyercheckapi.inplsoftwares.online/checkbuyer.php`
 - **Method**: POST
 - **Timeout**: 12 seconds
 - **Retries**: 2 attempts
 - **Returns**: `"Registered"` or `"Unregistered"`
-
