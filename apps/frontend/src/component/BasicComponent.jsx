@@ -2985,10 +2985,10 @@ export default function BasicTable() {
                           <TableCell align="center">
                             {row.status === "posted" ? (
                               row.rajby_sync_status === "synced" ? (
-                                <Tooltip title="Successfully posted & synced to Rajby Portal">
+                                <Tooltip title="Successfully posted & submitted to Rajby Portal">
                                   <Chip
                                     icon={<CheckCircleIcon style={{ fontSize: 14 }} />}
-                                    label="Synced"
+                                    label="Submitted"
                                     size="small"
                                     color="success"
                                     variant="outlined"
