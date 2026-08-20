@@ -85,7 +85,7 @@ app.use(
       "http://localhost:5174",
       "https://fbrtestcase.inplsoftwares.online",
       "http://116.0.43.82:5000",
-      "https://103.104.84.43:5000",
+      "http://103.104.84.43:5000",
       "*",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
