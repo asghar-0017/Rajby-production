@@ -39,7 +39,7 @@ export async function getRajbyToken(forceRefresh = false) {
   console.log(`Fetching new Rajby token from ${RAJBY_API_BASE_URL}...`);
 
   // Retry logic for network issues
-  const maxRetries = 2;
+  const maxRetries = 1;
   let lastError = null;
   let loginResponse = null;
 
@@ -59,7 +59,7 @@ export async function getRajbyToken(forceRefresh = false) {
           "Content-Type": "application/json",
           Accept: "text/plain",
         },
-        timeout: 30000, // 30 seconds timeout
+        timeout: 10000, // 10 seconds timeout
       };
 
       // Add proxy support if HTTP_PROXY or HTTPS_PROXY is set

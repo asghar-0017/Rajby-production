@@ -1,7 +1,7 @@
 import { getRajbyToken, deleteRajbyInvoice } from "../../service/RajbyService.js";
 import axios from "axios";
 
-const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://116.0.43.82:5000";
+const RAJBY_API_BASE_URL = process.env.RAJBY_API_BASE_URL || "http://103.104.84.43:5000";
 
 /**
  * Login to Rajby API
@@ -20,7 +20,7 @@ export const login = async (req, res) => {
     };
 
     // Retry logic for network issues
-    const maxRetries = 2;
+    const maxRetries = 1;
     let lastError = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -34,7 +34,7 @@ export const login = async (req, res) => {
               Accept: "text/plain",
               ...(RAJBY_API_KEY && { Authorization: RAJBY_API_KEY }),
             },
-            timeout: 30000,
+            timeout: 10000,
           }
         );
 
