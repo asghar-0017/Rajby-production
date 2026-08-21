@@ -37,6 +37,7 @@ export const login = async (req, res) => {
             timeout: 10000,
           }
         );
+        console.log("response",response)
 
         // Extract token from response
         const token =
