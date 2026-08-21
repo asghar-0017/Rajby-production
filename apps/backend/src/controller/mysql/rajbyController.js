@@ -45,7 +45,7 @@ export const login = async (req, res) => {
           response.data?.accessToken ||
           response.data?.data?.token ||
           response.data;
-
+        console.log("token",token)
         return res.status(200).json({
           success: true,
           data: {
